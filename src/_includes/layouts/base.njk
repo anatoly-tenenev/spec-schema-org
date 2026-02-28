@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% if title %}{{ title }} | {% endif %}Spec Schema</title>
+    <link rel="stylesheet" href="{{ '/assets/styles.css' | relurl(page.url) }}" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="{{ '/' | relurl(page.url) }}">spec-schema.org</a>
+      <nav>
+        <a href="{{ '/' | relurl(page.url) }}">Home</a>
+        <a href="{{ '/guide/' | relurl(page.url) }}">Markdown</a>
+      </nav>
+    </header>
+    <main class="content">
+      {{ content | safe }}
+    </main>
+  </body>
+</html>
