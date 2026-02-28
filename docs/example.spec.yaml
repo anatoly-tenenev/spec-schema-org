@@ -1,0 +1,135 @@
+version: 0.0.1
+entity:
+  domain:
+    id_prefix: DOM
+    path_pattern: "spec/domains/{slug}/index.md"
+
+  service:
+    parent: domain
+    id_prefix: SVC
+    path_pattern: "spec/services/{slug}/index.md"
+
+  feature:
+    parent: [service, $root]
+    id_prefix: FEAT
+    path_pattern:
+      service: "{parent:dir_path}/features/{meta:status}/{slug}.md"
+      $root: "spec/features/{meta:status}/{slug}.md"
+    meta:
+      fields:
+        - name: owner
+          schema:
+            type: string
+        - name: status
+          schema:
+            type: string
+            enum: [draft, testing, actual, deprecated]
+        - name: priority
+          schema:
+            type: string
+            enum: [p0, p1, p2]
+        - name: linked_epic
+          required: false
+          schema:
+            type: entity_ref
+            refTypes: [feature]
+        - name: service_tier
+          required_on: service
+          schema:
+            type: string
+            enum: [gold, silver, bronze]
+    content:
+      sections:
+        - name: goal
+          title: [Goal, Business Goal]
+        - name: scope
+        - name: acceptance
+          title: [Acceptance Criteria, Done Criteria]
+        - name: rollout
+          required_on: service
+
+  adr:
+    parent: [domain, service, feature]
+    id_prefix: ADR
+    path_pattern:
+      domain: "{parent:dir_path}/adr/{created_date}-{slug}.md"
+      service: "{parent:dir_path}/adr/{created_date}-{slug}.md"
+      feature: "{parent:dir_path}/adr/{created_date}-{slug}.md"
+    meta:
+      fields:
+        - name: decision_status
+          schema:
+            type: string
+            enum: [proposed, accepted, rejected, superseded]
+        - name: impact
+          schema:
+            type: string
+            enum: [low, medium, high]
+        - name: owner
+          schema:
+            type: string
+        - name: supersedes
+          required: false
+          schema:
+            type: entity_ref
+            refTypes: [adr]
+    content:
+      sections:
+        - name: context
+        - name: decision
+        - name: alternatives
+        - name: integration-impact
+          required_on: service
+        - name: consequences
+
+  feature_dev_plan:
+    parent: feature
+    id_prefix: PLAN
+    path_pattern: "{parent:dir_path}/plans/ai-{created_date}-{slug}.md"
+    meta:
+      fields:
+        - name: plan_status
+          schema:
+            type: string
+            enum: [draft, approved, in_progress, done]
+        - name: planning_mode
+          schema:
+            type: string
+            enum: [quick, balanced, deep]
+        - name: agent_profile
+          schema:
+            type: string
+            enum: [architect, coder, reviewer, multi_agent]
+        - name: confidence
+          schema:
+            type: integer
+            enum: [1, 2, 3, 4, 5]
+        - name: target_branch
+          schema:
+            type: string
+        - name: related_specs
+          required: false
+          schema:
+            type: array
+            items:
+              type: entity_ref
+              refTypes: [feature]
+            uniqueItems: true
+        - name: related_adrs
+          required: false
+          schema:
+            type: array
+            items:
+              type: entity_ref
+              refTypes: [adr]
+            uniqueItems: true
+    content:
+      sections:
+        - name: context
+        - name: ai-strategy
+          title: "AI Strategy"
+        - name: implementation-steps
+          title: "Implementation Steps"
+        - name: validation-checklist
+        - name: rollback
+          required: false
