@@ -1,4 +1,5 @@
 import { posix as path } from "node:path";
+import { readFileSync } from "node:fs";
 import type { UserConfig } from "@11ty/eleventy";
 
 function normalizePath(value: string): string {
@@ -25,9 +26,32 @@ function toDirectoryPath(value: string): string {
   return `${normalized.slice(0, lastSlashIndex)}/`;
 }
 
+function extractFencedCodeBlock(content: string, language?: string): string {
+  const normalized = content.replace(/\r\n/g, "\n");
+  const escapedLanguage = (language ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const languagePattern = escapedLanguage === "" ? "[^\\n]*" : escapedLanguage;
+  const matcher = new RegExp(
+    `^\\\`\\\`\\\`${languagePattern}\\s*\\n([\\s\\S]*?)\\n\\\`\\\`\\\`\\s*$`,
+    "m",
+  );
+  const match = normalized.match(matcher);
+
+  return match ? match[1] : "";
+}
+
 export default function config(eleventyConfig: UserConfig) {
   eleventyConfig.addPassthroughCopy({
     "src/assets": "assets",
+  });
+
+  eleventyConfig.addGlobalData("currentYear", () => new Date().getFullYear());
+
+  eleventyConfig.addFilter("readFile", (filePath: string) => {
+    return readFileSync(filePath, "utf8");
+  });
+
+  eleventyConfig.addFilter("extractFencedCode", (content: string, language?: string) => {
+    return extractFencedCodeBlock(content, language);
   });
 
   eleventyConfig.addFilter("relurl", (target: string, from = "/") => {

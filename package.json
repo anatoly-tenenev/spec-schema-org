@@ -7,9 +7,10 @@
     "node": "22.22.0"
   },
   "scripts": {
+    "clean": "node --eval \"import { rmSync } from 'node:fs'; rmSync('_site', { recursive: true, force: true });\"",
     "_11ty": "eleventy --config=eleventy.config.ts",
     "dev": "npm run _11ty -- --serve",
-    "build": "npm run _11ty",
+    "build": "npm run clean && npm run _11ty",
     "format": "node scripts/format.mjs",
     "format:check": "npm run format -- --check"
   },

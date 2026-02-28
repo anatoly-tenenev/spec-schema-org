@@ -3,9 +3,29 @@ layout: layouts/base.njk
 title: Home
 ---
 
-<h1>Spec Schema</h1>
-<p>A minimal site built with Eleventy.</p>
-<p>
-  This project uses a hybrid approach: pages in Nunjucks and a content page in Markdown.
-</p>
-<p><a href="{{ '/guide/' | relurl(page.url) }}">Open the Markdown page</a></p>
+<section class="hero">
+  <p class="hero__eyebrow">Specification Description Standard</p>
+  <h1>Spec Schema</h1>
+  <p class="hero__lead">
+    A unified specification standard for the repository: human-readable, machine-validatable, and independent of any specific tool.
+  </p>
+  <ul class="hero__theses">
+    <li>A verifiable specification standard, not just a collection of Markdown files.</li>
+    <li>Supports complex repository structures, not only flat lists of documents.</li>
+    <li>Does not impose a workflow and is not tied to any specific AI agent and SDD tool.</li>
+  </ul>
+  <div class="hero__actions">
+    <a class="button button--primary" href="{{ '/standard/' | relurl(page.url) }}">Read standard</a>
+  </div>
+</section>
+
+<section class="panel" id="example-spec">
+  <h2>Example spec</h2>
+  <p><code>example.spec.yaml</code></p>
+  <pre class="code-block"><code>{{ "docs/example.spec.yaml" | readFile | escape }}</code></pre>
+</section>
+
+<section class="panel">
+  <h2>Example file structure</h2>
+  <pre class="code-block"><code>{{ "docs/example.file-structure.md" | readFile | extractFencedCode("text") | escape }}</code></pre>
+</section>
