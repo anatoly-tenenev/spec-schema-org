@@ -1,9 +1,20 @@
 <!doctype html>
 <html lang="en">
   <head>
+    {% set pageTitle = (title + " | " if title else "") + site.name %}
+    {% set pageDescription = description or site.description %}
+    {% set canonicalUrl = site.url + page.url %}
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{% if title %}{{ title }} | {% endif %}Spec Schema</title>
+    <title>{{ pageTitle | escape }}</title>
+    <meta name="description" content="{{ pageDescription | escape }}" />
+    <meta name="robots" content="{{ robots or 'index,follow' }}" />
+    <link rel="canonical" href="{{ canonicalUrl | escape }}" />
+    <meta property="og:site_name" content="{{ site.name | escape }}" />
+    <meta property="og:title" content="{{ pageTitle | escape }}" />
+    <meta property="og:description" content="{{ pageDescription | escape }}" />
+    <meta property="og:url" content="{{ canonicalUrl | escape }}" />
+    <meta property="og:type" content="{{ ogType or 'website' }}" />
     <link rel="stylesheet" href="{{ '/assets/styles.css' | relurl(page.url) }}" />
   </head>
   <body>

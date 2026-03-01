@@ -45,6 +45,12 @@ export default function config(eleventyConfig: UserConfig) {
   });
 
   eleventyConfig.addGlobalData("currentYear", () => new Date().getFullYear());
+  eleventyConfig.addGlobalData("site", {
+    url: "https://spec-schema.org",
+    name: "Spec Schema",
+    description:
+      "Specification Description Standard (Spec Schema): a unified, machine-validatable specification format for repositories.",
+  });
 
   eleventyConfig.addFilter("readFile", (filePath: string) => {
     return readFileSync(filePath, "utf8");
