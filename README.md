@@ -1,1 +1,1 @@
-http://spec-schema.org/
+https://spec-schema.org/
