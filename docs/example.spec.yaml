@@ -1,26 +1,48 @@
-version: 0.0.1
+version: 0.0.2
+description: "Example schema aligned with SPEC_DESC_STANDARD.md"
 entity:
   domain:
     id_prefix: DOM
     path_pattern: "spec/domains/{slug}/index.md"
+    content:
+      sections:
+        - name: goal
+          required: true
+          title: [Goal, Business Goal]
 
   service:
-    parent: domain
     id_prefix: SVC
-    path_pattern: "spec/services/{slug}/index.md"
-
-  feature:
-    parent: [service, $root]
-    id_prefix: FEAT
-    path_pattern:
-      service: "{parent:dir_path}/features/{meta:status}/{slug}.md"
-      $root: "spec/features/{meta:status}/{slug}.md"
+    path_pattern: "{ref:domain:dir_path}/services/{slug}/index.md"
     meta:
       fields:
+        - name: domain
+          required: true
+          schema:
+            type: entity_ref
+            refTypes: [domain]
+        - name: tier
+          schema:
+            type: string
+            enum: [gold, silver, bronze]
+
+  feature:
+    id_prefix: FEAT
+    path_pattern:
+      - when: { exists: meta.service }
+        use: "{ref:service:dir_path}/features/{meta:status}/{slug}.md"
+      - use: "spec/features/{meta:status}/{slug}.md"
+    meta:
+      fields:
+        - name: service
+          schema:
+            type: entity_ref
+            refTypes: [service]
         - name: owner
+          required: true
           schema:
             type: string
         - name: status
+          required: true
           schema:
             type: string
             enum: [draft, testing, actual, deprecated]
@@ -29,35 +51,45 @@ entity:
             type: string
             enum: [p0, p1, p2]
         - name: linked_epic
-          required: false
           schema:
             type: entity_ref
             refTypes: [feature]
         - name: service_tier
-          required_on: service
+          required_when:
+            exists: meta.service
           schema:
             type: string
             enum: [gold, silver, bronze]
+        - name: test_file
+          required_when:
+            in: [meta.status, [testing, actual]]
+          schema:
+            type: string
     content:
       sections:
         - name: goal
+          required: true
           title: [Goal, Business Goal]
         - name: scope
         - name: acceptance
+          required: true
           title: [Acceptance Criteria, Done Criteria]
         - name: rollout
-          required_on: service
+          required_when:
+            exists: meta.service
 
   adr:
-    parent: [domain, service, feature]
     id_prefix: ADR
-    path_pattern:
-      domain: "{parent:dir_path}/adr/{created_date}-{slug}.md"
-      service: "{parent:dir_path}/adr/{created_date}-{slug}.md"
-      feature: "{parent:dir_path}/adr/{created_date}-{slug}.md"
+    path_pattern: "{ref:context:dir_path}/adr/{created_date}-{slug}.md"
     meta:
       fields:
+        - name: context
+          required: true
+          schema:
+            type: entity_ref
+            refTypes: [domain, service, feature]
         - name: decision_status
+          required: true
           schema:
             type: string
             enum: [proposed, accepted, rejected, superseded]
@@ -69,67 +101,17 @@ entity:
           schema:
             type: string
         - name: supersedes
-          required: false
           schema:
             type: entity_ref
             refTypes: [adr]
     content:
       sections:
         - name: context
+          required: true
         - name: decision
+          required: true
         - name: alternatives
         - name: integration-impact
-          required_on: service
+          required_when:
+            eq: [ref.context.type, "service"]
         - name: consequences
-
-  feature_dev_plan:
-    parent: feature
-    id_prefix: PLAN
-    path_pattern: "{parent:dir_path}/plans/ai-{created_date}-{slug}.md"
-    meta:
-      fields:
-        - name: plan_status
-          schema:
-            type: string
-            enum: [draft, approved, in_progress, done]
-        - name: planning_mode
-          schema:
-            type: string
-            enum: [quick, balanced, deep]
-        - name: agent_profile
-          schema:
-            type: string
-            enum: [architect, coder, reviewer, multi_agent]
-        - name: confidence
-          schema:
-            type: integer
-            enum: [1, 2, 3, 4, 5]
-        - name: target_branch
-          schema:
-            type: string
-        - name: related_specs
-          required: false
-          schema:
-            type: array
-            items:
-              type: entity_ref
-              refTypes: [feature]
-            uniqueItems: true
-        - name: related_adrs
-          required: false
-          schema:
-            type: array
-            items:
-              type: entity_ref
-              refTypes: [adr]
-            uniqueItems: true
-    content:
-      sections:
-        - name: context
-        - name: ai-strategy
-          title: "AI Strategy"
-        - name: implementation-steps
-          title: "Implementation Steps"
-        - name: validation-checklist
-        - name: rollback
-          required: false
