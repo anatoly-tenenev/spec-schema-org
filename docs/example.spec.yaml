@@ -1,26 +1,24 @@
-version: 0.0.2
-description: "Example schema aligned with SPEC_DESC_STANDARD.md"
+version: 0.0.4
+description: "Example schema aligned with SPEC_DESC_STANDARD.md and example.file-structure.md"
 entity:
   domain:
     id_prefix: DOM
     path_pattern: "spec/domains/{slug}/index.md"
     content:
       sections:
-        - name: goal
-          required: true
-          title: [Goal, Business Goal]
+        goal:
+          title: Goal
 
   service:
     id_prefix: SVC
-    path_pattern: "{ref:domain:dir_path}/services/{slug}/index.md"
+    path_pattern: "{refs.domain.dir_path}/services/{slug}/index.md"
     meta:
       fields:
-        - name: domain
-          required: true
+        domain:
           schema:
             type: entity_ref
             refTypes: [domain]
-        - name: tier
+        tier:
           schema:
             type: string
             enum: [gold, silver, bronze]
@@ -28,90 +26,90 @@ entity:
   feature:
     id_prefix: FEAT
     path_pattern:
-      - when: { exists: meta.service }
-        use: "{ref:service:dir_path}/features/{meta:status}/{slug}.md"
-      - use: "spec/features/{meta:status}/{slug}.md"
+      cases:
+        - when: { exists: refs.service }
+          use: "{refs.service.dir_path}/features/{meta.status}/{slug}.md"
+        - use: "spec/features/{meta.status}/{slug}.md"
     meta:
       fields:
-        - name: service
+        service:
           schema:
             type: entity_ref
             refTypes: [service]
-        - name: owner
-          required: true
+        owner:
           schema:
             type: string
-        - name: status
-          required: true
+        status:
           schema:
             type: string
             enum: [draft, testing, actual, deprecated]
-        - name: priority
+        priority:
           schema:
             type: string
             enum: [p0, p1, p2]
-        - name: linked_epic
+        linked_epic:
           schema:
             type: entity_ref
             refTypes: [feature]
-        - name: service_tier
+        service_tier:
           required_when:
             exists: meta.service
           schema:
             type: string
             enum: [gold, silver, bronze]
-        - name: test_file
+        test_file:
           required_when:
             in: [meta.status, [testing, actual]]
           schema:
             type: string
     content:
       sections:
-        - name: goal
-          required: true
-          title: [Goal, Business Goal]
-        - name: scope
-        - name: acceptance
-          required: true
-          title: [Acceptance Criteria, Done Criteria]
-        - name: rollout
+        goal:
+          title: Goal
+        scope:
+          title: Scope
+        acceptance:
+          title: Acceptance Criteria
+        rollout:
           required_when:
             exists: meta.service
+          title: Rollout
 
   adr:
     id_prefix: ADR
-    path_pattern: "{ref:context:dir_path}/adr/{created_date}-{slug}.md"
+    path_pattern: "{refs.context.dir_path}/adr/{created_date}-{slug}.md"
     meta:
       fields:
-        - name: context
-          required: true
+        context:
           schema:
             type: entity_ref
             refTypes: [domain, service, feature]
-        - name: decision_status
-          required: true
+        decision_status:
           schema:
             type: string
             enum: [proposed, accepted, rejected, superseded]
-        - name: impact
+        impact:
           schema:
             type: string
             enum: [low, medium, high]
-        - name: owner
+        owner:
           schema:
             type: string
-        - name: supersedes
+        supersedes:
           schema:
             type: entity_ref
             refTypes: [adr]
     content:
       sections:
-        - name: context
-          required: true
-        - name: decision
-          required: true
-        - name: alternatives
-        - name: integration-impact
+        context:
+          title: Context
+        decision:
+          title: Decision
+        alternatives:
+          title: Alternatives
+        integration-impact:
           required_when:
-            eq: [ref.context.type, "service"]
-        - name: consequences
+            eq?: [refs.context.type, "service"]
+          title: Integration Impact
+        consequences:
+          title: Consequences
