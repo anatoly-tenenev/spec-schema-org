@@ -1,5 +1,4 @@
 version: 0.0.4
-description: "Example schema aligned with SPEC_DESC_STANDARD.md and example.file-structure.md"
 entity:
   domain:
     id_prefix: DOM
@@ -33,6 +32,7 @@ entity:
     meta:
       fields:
         service:
+          required: false
           schema:
             type: entity_ref
             refTypes: [service]
@@ -48,15 +48,10 @@ entity:
             type: string
             enum: [p0, p1, p2]
         linked_epic:
+          required: false
           schema:
             type: entity_ref
             refTypes: [feature]
-        service_tier:
-          required_when:
-            exists: meta.service
-          schema:
-            type: string
-            enum: [gold, silver, bronze]
         test_file:
           required_when:
             in: [meta.status, [testing, actual]]
@@ -92,9 +87,6 @@ entity:
           schema:
             type: string
             enum: [low, medium, high]
-        owner:
-          schema:
-            type: string
         supersedes:
           schema:
             type: entity_ref
