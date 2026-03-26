@@ -1,21 +1,21 @@
-version: 0.0.4
+version: 0.0.5
 entity:
   domain:
-    id_prefix: DOM
-    path_pattern: "spec/domains/{slug}/index.md"
+    idPrefix: DOM
+    pathTemplate: "spec/domains/${slug}/index.md"
     content:
       sections:
         goal:
           title: Goal
 
   service:
-    id_prefix: SVC
-    path_pattern: "{refs.domain.dir_path}/services/{slug}/index.md"
+    idPrefix: SVC
+    pathTemplate: "${refs.domain.dirPath}/services/${slug}/index.md"
     meta:
       fields:
         domain:
           schema:
-            type: entity_ref
+            type: entityRef
             refTypes: [domain]
         tier:
           schema:
@@ -23,18 +23,18 @@ entity:
             enum: [gold, silver, bronze]
 
   feature:
-    id_prefix: FEAT
-    path_pattern:
+    idPrefix: FEAT
+    pathTemplate:
       cases:
-        - when: { exists: refs.service }
-          use: "{refs.service.dir_path}/features/{meta.status}/{slug}.md"
-        - use: "spec/features/{meta.status}/{slug}.md"
+        - when: ${refs.service}
+          use: "${refs.service.dirPath}/features/${meta.status}/${slug}.md"
+        - use: "spec/features/${meta.status}/${slug}.md"
     meta:
       fields:
         service:
           required: false
           schema:
-            type: entity_ref
+            type: entityRef
             refTypes: [service]
         owner:
           schema:
@@ -50,11 +50,10 @@ entity:
         linked_epic:
           required: false
           schema:
-            type: entity_ref
+            type: entityRef
             refTypes: [feature]
         test_file:
-          required_when:
-            in: [meta.status, [testing, actual]]
+          required: ${meta.status == 'testing' || meta.status == 'actual'}
           schema:
             type: string
     content:
@@ -66,18 +65,17 @@ entity:
         acceptance:
           title: Acceptance Criteria
         rollout:
-          required_when:
-            exists: meta.service
+          required: "${meta.service}"
           title: Rollout
 
   adr:
-    id_prefix: ADR
-    path_pattern: "{refs.context.dir_path}/adr/{created_date}-{slug}.md"
+    idPrefix: ADR
+    pathTemplate: "${refs.context.dirPath}/adr/${createdDate}-${slug}.md"
     meta:
       fields:
         context:
           schema:
-            type: entity_ref
+            type: entityRef
             refTypes: [domain, service, feature]
         decision_status:
           schema:
@@ -89,7 +87,7 @@ entity:
             enum: [low, medium, high]
         supersedes:
           schema:
-            type: entity_ref
+            type: entityRef
             refTypes: [adr]
     content:
       sections:
@@ -100,8 +98,7 @@ entity:
         alternatives:
           title: Alternatives
         integration-impact:
-          required_when:
-            eq?: [refs.context.type, "service"]
+          required: ${refs.context.type == 'service'}
           title: Integration Impact
         consequences:
           title: Consequences
