@@ -3,8 +3,8 @@
 ## Document Status
 
 Status of this revision: `Draft`.
-Last updated: `2026-03-16`.
-Standard version: `0.0.4`.
+Last updated: `2026-03-26`.
+Standard version: `0.0.5`.
 
 Before release `1.0.0`, incompatible schema format changes (breaking changes) are allowed when increasing `MINOR` and/or `MAJOR`.
 
@@ -26,6 +26,7 @@ The following base specifications are used when applying this standard:
 - RFC 3339 (Date and Time on the Internet: Timestamps);
 - YAML 1.2.2 (YAML Ain't Markup Language, Version 1.2.2);
 - JSON Schema Draft 2020-12 (Core and Validation);
+- JMESPath Specification;
 - CommonMark 0.31.2 (base Markdown syntax for headings and links; label form `<title> {#<label>}` is defined by this standard as a local extension, Section 13.2).
 
 If a rule of this standard explicitly clarifies or restricts a rule from an external specification, the rule of this standard applies.
@@ -95,18 +96,15 @@ The standard does not define:
 - `Specification dataset` - a set of entity implementations validated together.
 - `YAML frontmatter` - an initial metadata block of a Markdown document delimited by `---`/`...` separators.
 - `YAML mapping` (`mapping`) - a top-level YAML key-value object.
-- `Reference field` (`entity_ref`) - a metadata field defined with `schema.type: entity_ref` and containing the `id` of another entity.
+- `Reference field` (`entityRef`) - a metadata field defined with `schema.type: entityRef` and containing the `id` of another entity.
 - `Reference resolution` (`resolve`) - an unambiguous mapping of a reference field value to a specific existing entity in the specification dataset.
-- `Pattern` (`pattern`) - a string with placeholders used for validation.
+- `Pattern` (`pattern`) - a string with literal fragments and/or `${expr}` interpolations used for validation.
+- `Expression interpolation` (`expression interpolation`) - a fragment of the form `${expr}`, where `expr` is a JMESPath expression evaluated in the context of a specific entity implementation.
 - `Prefix` (`prefix`) - a fixed string at the beginning of a value used as part of a validation rule.
 - `Section label` (`anchor label`) - anchor identifier value without the `#` prefix (for example, `goal`).
 - `Label reference` - a reference with the `#` prefix (for example, `#goal`).
 - `Validator` - an implementation that checks schema and/or specification dataset conformance to this standard.
-- `Implementation profile` - a documented set of validator parameters that defines at minimum: (1) path normalization rules; (2) `YAML frontmatter` parsing model (YAML version, scalar resolution schema, handling rules for non-standard/unknown tags); (3) deterministic rules for resolving `entity_ref` references and computing placeholder `{refs.<field_name>.dir_path}`.
-- `Potentially-missing reference` (`potentially-missing reference`) - an expression-context reference for which the standard cannot guarantee value presence for all implementations using only the schema.
-- `Static guard` (`static guard`) - use of expression `exists: R` in `path_pattern.cases[].when` that validator counts as proof of safe substitution for a potentially missing placeholder in `path_pattern.cases[].use` of the same case by rules of Section 11.6.
-- `Statically-safe strict use` (`statically-safe strict use`) - use of `eq`/`in` only with reference operands that are not potentially missing.
-- `Statically-safe placeholder use` (`statically-safe placeholder use`) - use of `{meta.<field_name>}` or `{refs.<field_name>.<part>}` in `path_pattern.cases[].use` that either relies on a guaranteed-available value or is protected by a static guard in `when` of the same case.
+- `Implementation profile` - a documented set of validator parameters that defines at minimum: (1) path normalization rules; (2) `YAML frontmatter` parsing model (YAML version, scalar resolution schema, handling rules for non-standard/unknown tags); (3) deterministic rules for resolving `entityRef` references; (4) JMESPath implementation used or another guarantee of equivalent behavior.
 
 ## 4. General Schema Data Model
 
@@ -121,6 +119,8 @@ A schema MAY contain:
 
 Allowed top-level schema keys in this version of the standard: `version`, `entity`, `description`.
 
+Reserved keys of this standard and built-in implementation fields MUST use `camelCase`. This rule does not constrain the naming style of user-defined `entity.<typeName>`, `meta.fields.<fieldName>`, and `content.sections.<sectionName>` names, provided they satisfy the syntactic constraints of the standard.
+
 A closed-world key model applies to normative schema objects:
 
 - keys not explicitly listed as allowed in the corresponding section of this standard are not allowed;
@@ -133,7 +133,7 @@ Violation of the closed-world key model is a `SchemaError` class violation (Sect
 Top-level structure example (informative):
 
 ```yaml
-version: 0.0.3
+version: 0.0.5
 description: "Base specification schema"
 entity:
   domain: ...
@@ -150,12 +150,12 @@ For versions with `MAJOR = 0` (`Draft` status), incompatible changes are allowed
 
 ## 5. Entity Type Description Rules
 
-Each `entity.<type_name>` element describes one entity type.
+Each `entity.<typeName>` element describes one entity type.
 
 ### 5.1. Required Entity Type Fields
 
-- `id_prefix`
-- `path_pattern`
+- `idPrefix`
+- `pathTemplate`
 
 ### 5.2. Optional Entity Type Fields
 
@@ -165,12 +165,12 @@ Each `entity.<type_name>` element describes one entity type.
 
 If specified, `description` MUST be a non-empty string and is informative (does not affect validation result).
 
-Allowed keys in `entity.<type_name>`: `id_prefix`, `path_pattern`, `meta`, `content`, `description`.
-Any other key in `entity.<type_name>` is not allowed and is a `SchemaError` class violation (Section 14.4).
+Allowed keys in `entity.<typeName>`: `idPrefix`, `pathTemplate`, `meta`, `content`, `description`.
+Any other key in `entity.<typeName>` is not allowed and is a `SchemaError` class violation (Section 14.4).
 
 ### 5.3. Deterministic Identification of Entity Implementation Type
 
-For each entity implementation, validator MUST determine the entity type before applying `path_pattern`, `meta`, and `content` rules.
+For each entity implementation, validator MUST determine the entity type before applying `pathTemplate`, `meta`, and `content` rules.
 
 Implementation type MUST be determined primarily by required `type` field from `YAML frontmatter`.
 Using file path, directory name, or other heuristics for type selection is not allowed.
@@ -178,46 +178,52 @@ Using file path, directory name, or other heuristics for type selection is not a
 Type identification algorithm:
 
 1. Read `type` field value from implementation `YAML frontmatter`.
-2. If `type` is absent, is not a string, or does not match any `entity.<type_name>` key, this is an `InstanceError` class violation (Section 14.4).
+2. If `type` is absent, is not a string, or does not match any `entity.<typeName>` key, this is an `InstanceError` class violation (Section 14.4).
 3. Treat `type` value as implementation type.
-4. Validate consistency of `id` with `entity.<type>.id_prefix` by rules of Section 7.
-5. Any inconsistency between `id` value and `id_prefix` of selected type is an `InstanceError` class violation (Section 14.4).
+4. Validate consistency of `id` with `entity.<type>.idPrefix` by rules of Section 7.
+5. Any inconsistency between `id` value and `idPrefix` of selected type is an `InstanceError` class violation (Section 14.4).
 
-## 6. Reference Field Rules (`entity_ref`)
+## 6. Reference Field Rules (`entityRef`)
 
 ### 6.1. General Model
 
 This standard does not define a special `parent` entity and does not reserve names of reference fields.
-Relationships between entities are defined only through fields declared in `meta.fields` with `schema.type: entity_ref`.
+Relationships between entities are defined only through fields declared in `meta.fields` with `schema.type: entityRef`.
 
-Reference field name is chosen by schema author according to domain semantics (for example, `owner`, `service`, `domain_owner`, `depends_on`).
+Reference field name is chosen by schema author according to domain semantics (for example, `owner`, `service`, `domainOwner`, `dependsOn`).
 
 ### 6.2. Reference Cardinality and Typing
 
-A single `entity_ref` field value defines a reference to one entity.
+A single `entityRef` field value defines a reference to one entity.
 Multiple relationships are represented by separate fields or via arrays under general `schema.type: array` rules (Section 12.2).
 
 Allowed target entity types are restricted by `schema.refTypes` (Sections 12.2 and 12.3).
 
 ### 6.3. Reference Resolution
 
-For each present `entity_ref` reference, validator MUST unambiguously determine target entity in the specification dataset.
-Resolution is performed by string `id` value of the reference, considering `refTypes` constraints when present.
+For each present `entityRef` reference, validator MUST unambiguously determine target entity in the specification dataset.
+Resolution is performed by string `id` value of the reference, taking `refTypes` constraints into account when present.
 
 Regardless of index storage mechanism, validator MUST apply the same resolution rule across the whole specification dataset.
 
 ### 6.4. `refs` Context
 
-Value of reference field `meta.<field_name>` in `YAML frontmatter` remains the original `id` string specified in implementation data.
+Value of reference field `meta.<fieldName>` in `YAML frontmatter` remains the original `id` string specified in implementation data.
 
-For each successfully resolved reference `meta.<field_name>`, `refs` namespace MAY be used in substitution and expressions:
+For each field `meta.<fieldName>` with `schema.type: entityRef`, `refs` namespace MAY be used in expressions and interpolation:
 
-- `refs.<field_name>.id`
-- `refs.<field_name>.type`
-- `refs.<field_name>.slug`
-- `refs.<field_name>.dir_path`
+- `refs.<fieldName>`
+- `refs.<fieldName>.id`
+- `refs.<fieldName>.type`
+- `refs.<fieldName>.slug`
+- `refs.<fieldName>.dirPath`
 
-`refs.<field_name>.dir_path` means path to the target entity file directory relative to specification dataset root in POSIX form, without trailing `/`.
+Value of `refs.<fieldName>` is interpreted as follows:
+
+- on successful resolution, an object with properties `id`, `type`, `slug`, `dirPath`;
+- if the field is absent in `YAML frontmatter` or the reference cannot be resolved for a specific implementation, `null`.
+
+`refs.<fieldName>.dirPath` means path to target entity file directory relative to specification dataset root in POSIX form, without trailing `/`.
 
 ### 6.5. Minimum Required Contract of the Implementation Profile
 
@@ -227,29 +233,30 @@ At minimum, the implementation profile MUST define:
 
 - path normalization rule;
 - `YAML frontmatter` parsing model: YAML version, scalar resolution schema, and handling rules for non-standard/unknown tags;
-- deterministic resolution rule for `entity_ref` references;
-- rule for computing `refs.<field_name>.dir_path` for a resolved reference;
+- deterministic resolution rule for `entityRef` references;
+- JMESPath implementation used (library, version, or an equivalent behavioral specification);
+- rule for computing `refs.<fieldName>.dirPath` for a resolved reference;
 - repeatability guarantee: with identical schema/data input, `YAML frontmatter` parsing, resolution, and validation results MUST be the same.
 
-## 7. `id_prefix` Field Rules
+## 7. `idPrefix` Field Rules
 
 ### 7.1. Purpose
 
-`id_prefix` defines the prefix of the `id` field for implementations of the corresponding entity type.
-The `id` field MUST have format `"{id_prefix}-N"`, where `N` is a non-negative integer in unsigned decimal notation.
+`idPrefix` defines the prefix of the `id` field for implementations of the corresponding entity type.
+The `id` field MUST have format `"{idPrefix}-N"`, where `N` is a non-negative integer in unsigned decimal notation.
 Validation MUST be performed against the whole `id` value, not a substring.
 
 ### 7.2. Requiredness
 
-`id_prefix` is required for each entity type.
+`idPrefix` is required for each entity type.
 
 ### 7.3. `id` Format and Numeric Suffix
 
-`id_prefix` MUST be a non-empty ASCII string and MUST fully match regular expression `^[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*$`.
-`id_prefix` MUST NOT contain placeholders of form `{...}`.
-`id_prefix` values MUST be globally unique within `entity`; repeating `id_prefix` across different entity types is a `SchemaError` class violation (Section 14.4).
+`idPrefix` MUST be a non-empty ASCII string and MUST fully match regular expression `^[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*$`.
+`idPrefix` MUST NOT contain interpolations of the form `${...}`.
+`idPrefix` values MUST be globally unique within `entity`; repeating `idPrefix` across different entity types is a `SchemaError` class violation (Section 14.4).
 
-Numeric suffix `N` in `"{id_prefix}-N"` is treated as a counter:
+Numeric suffix `N` in `"{idPrefix}-N"` is treated as a counter:
 
 - unique within entity type;
 - starting from `0`.
@@ -257,11 +264,11 @@ Numeric suffix `N` in `"{id_prefix}-N"` is treated as a counter:
 `N` MUST be interpreted as a non-negative integer in unsigned decimal notation.
 This standard does not require sequence continuity (gaps are allowed).
 
-## 8. `path_pattern` Field Rules
+## 8. `pathTemplate` Field Rules
 
 ### 8.1. Purpose
 
-`path_pattern` defines a path validation pattern or a set of conditional path validation patterns for an entity implementation file (or document).
+`pathTemplate` defines a path validation template or a set of conditional path validation templates for an entity implementation file (or document).
 Matching MUST be performed against the whole path, not a substring.
 
 Path MUST be validated as a relative path from specification dataset root in POSIX form (`/` separator).
@@ -269,29 +276,30 @@ Comparison is performed on normalized path representation, where `./` prefix, em
 
 ### 8.2. Simple Form
 
-`path_pattern` MAY be a string. In this case, the string is treated as an unconditional path pattern.
+`pathTemplate` MAY be a string. In this case, the string is treated as an unconditional path template.
+`pathTemplate` string is a template string and MAY contain literal fragments and `${expr}` interpolations by rules of Sections 9 and 11.6.
 
 Example (informative):
 
 ```yaml
-path_pattern: "docs/specs/domains/{slug}/index.md"
+pathTemplate: "docs/specs/domains/${slug}/index.md"
 ```
 
 ### 8.3. Conditional Form (`cases`)
 
-Conditional `path_pattern` logic is defined by cases (`cases`) using `if / else if / else` model.
+Conditional `pathTemplate` logic is defined by cases (`cases`) using `if / else if / else` model.
 Two container forms are supported:
 
-- short form: `path_pattern` is a list of cases;
-- canonical form: `path_pattern` is an object containing `cases` field.
+- short form: `pathTemplate` is a list of cases;
+- canonical form: `pathTemplate` is an object containing `cases` field.
 
 Short form is syntactic sugar and is normalized to canonical form by rules of Section 8.4.
-In canonical form, `path_pattern` object MAY contain only `cases` key.
+In canonical form, `pathTemplate` object MAY contain only `cases` key.
 
 A case MUST be an object with following fields:
 
-- `use` (required) - string path pattern;
-- `when` (optional) - boolean value or expression by rules of Section 11.6.
+- `use` (required) - string path template;
+- `when` (optional) - boolean value or `${expr}` expression by rules of Section 11.6.
 
 Other fields in a case are not allowed and are a `SchemaError` class violation (Section 14.4).
 
@@ -304,58 +312,47 @@ Requirements for case list:
 For canonical form:
 
 - `cases` is required and MUST satisfy requirements above;
-- other `path_pattern` object fields are not allowed and are a `SchemaError` class violation (Section 14.4).
+- other `pathTemplate` object fields are not allowed and are a `SchemaError` class violation (Section 14.4).
 
-### 8.4. Normalization and Pattern Selection During Validation
+### 8.4. Normalization and Template Selection During Validation
 
-Before evaluating conditions, validator MUST normalize `path_pattern` to internal canonical form `path_pattern.cases`:
+Before evaluating conditions, validator MUST normalize `pathTemplate` to internal canonical form `pathTemplate.cases`:
 
-1. If `path_pattern` is a string, it is equivalent to `path_pattern: { cases: [{ use: "<string>" }] }`.
-2. If `path_pattern` is a list, it is equivalent to `path_pattern: { cases: <that_list> }`.
-3. If `path_pattern` is an object, `cases` field is used.
+1. If `pathTemplate` is a string, it is equivalent to `pathTemplate: { cases: [{ use: "<string>" }] }`.
+2. If `pathTemplate` is a list, it is equivalent to `pathTemplate: { cases: <that_list> }`.
+3. If `pathTemplate` is an object, `cases` field is used.
 
 After normalization, validator MUST:
 
 1. evaluate `cases[]` left to right;
-2. choose `use` of the first case that satisfies one of conditions:
+2. choose `use` of first case that satisfies one of conditions:
    - `when` field is absent (unconditional case, `else` branch);
-   - `when` field is present and evaluates to `true`.
+   - `when` field is present and evaluates to a truth-like value by rules of Section 11.6.
 
-### 8.5. Using Placeholders in `path_pattern`
+### 8.5. Using Interpolations in `pathTemplate`
 
-Only placeholders allowed for context `path_pattern.cases[].use` (Section 9.4) are permitted in string patterns `path_pattern.cases[].use`.
+Only `${expr}` interpolations allowed for context `pathTemplate.cases[].use` (Section 9.4) are permitted in template strings `pathTemplate.cases[].use`.
+Each `expr` is evaluated by rules of Section 11.6 in context of specific entity implementation.
 
-Constraints for `{meta.<field_name>}`:
-
-- field `field_name` MUST be declared in `meta.fields` of this entity type;
-- and one of the following conditions MUST hold:
-  - corresponding `schema.type` MUST be one of `string`, `integer`, `boolean`, `null`, and `schema.enum` MUST be specified;
-  - corresponding `schema.type` MUST equal `entity_ref`.
-
-Constraints for `{refs.<field_name>.<part>}`:
-
-- field `field_name` MUST be declared in `meta.fields` of this entity type;
-- corresponding `schema.type` MUST equal `entity_ref`.
-
-For a `Schema-conformant` schema, after checks of Section 8.6, if selected pattern contains `{meta.<field_name>}` or `{refs.<field_name>.<part>}`, and the corresponding value is absent or cannot be computed on specific data, this is an `InstanceError` class violation (Section 14.4).
+If the selected template contains an interpolation that cannot be evaluated for a specific implementation or does not produce a value compatible with string interpolation under Section 9.3, this is an `InstanceError` class violation (Section 14.4).
 
 Example of valid schema (informative, canonical form):
 
 ```yaml
 entity:
   feature:
-    id_prefix: "FEAT"
-    path_pattern:
+    idPrefix: "FEAT"
+    pathTemplate:
       cases:
-        - when: { exists: refs.owner }
-          use: "{refs.owner.dir_path}/features/{created_date}-{slug}.md"
-        - use: "spec/features/{slug}.md"
+        - when: ${refs.owner}
+          use: "${refs.owner.dirPath}/features/${createdDate}-${slug}.md"
+        - use: "spec/features/${slug}.md"
     meta:
       fields:
         owner:
           required: false
           schema:
-            type: entity_ref
+            type: entityRef
             refTypes: [service]
 ```
 
@@ -364,136 +361,100 @@ Equivalent short form (informative):
 ```yaml
 entity:
   feature:
-    id_prefix: "FEAT"
-    path_pattern:
-      - when: { exists: refs.owner }
-        use: "{refs.owner.dir_path}/features/{created_date}-{slug}.md"
-      - use: "spec/features/{slug}.md"
+    idPrefix: "FEAT"
+    pathTemplate:
+      - when: ${refs.owner}
+        use: "${refs.owner.dirPath}/features/${createdDate}-${slug}.md"
+      - use: "spec/features/${slug}.md"
 ```
 
-### 8.6. Static Consistency of `path_pattern` and Value Availability
+### 8.6. Evaluation of Selected `pathTemplate`
 
-Checks in this section are performed at the `Schema-conformant` stage.
-Violation of any rule in Section 8.6 is a `SchemaError` class violation (Section 14.4).
+After selecting a case by rules of Section 8.4, validator MUST evaluate only `use` string of the selected case.
+Unselected cases are not interpreted on the level of a specific implementation.
 
-For each case in `path_pattern.cases[]`, validator MUST check all placeholders in `use` and the related `when` expression (if specified).
+For each `${expr}` interpolation in the selected `use` string, validator MUST:
 
-Reference classification at the `Schema-conformant` stage:
+1. evaluate `expr` in context of specific implementation;
+2. verify that result is compatible with string interpolation by rules of Section 9.3;
+3. substitute string representation of result into the template.
 
-- `not potentially-missing`:
-  - built-in fields `meta.type`, `meta.id`, `meta.slug`, `meta.created_date`, `meta.updated_date`;
-  - `meta.<field_name>` for a field from `meta.fields`, if all conditions hold:
-    - effective `required` value is `true` (Section 11.5);
-    - `required_when` key is absent.
-- `potentially-missing`:
-  - `meta.<field_name>` for conditionally required and optional fields;
-  - any `refs.<field_name>.<part>`.
+If result of expression is `null`, or has type `array` or `object`, this is an `InstanceError` class violation (Section 14.4).
 
-Use of `{meta.<field_name>}` or `{refs.<field_name>.<part>}` in `path_pattern.cases[].use` is statically safe only if:
+If validator can deterministically establish that a `${expr}` expression in `use` string is invalid or cannot produce a value compatible with string interpolation in this context, it MAY report this as a `SchemaError` (Section 14.4) already at the schema-validation stage.
 
-1. the corresponding reference is classified as `not potentially-missing`; or
-2. for the same value source, `when` of this same case contains a valid static guard by rules of Section 11.6.
+## 9. `${expr}` Interpolation
 
-Matching of value source is defined as:
+### 9.1. General Model
 
-- for `{meta.<field_name>}`, only guard `exists: meta.<field_name>` is allowed;
-- for `{refs.<field_name>.<part>}`, guard `exists: refs.<field_name>` or `exists: refs.<field_name>.<part2>` is allowed, where `<part2>` is any supported `part` from `id`, `type`, `slug`, `dir_path`.
+This standard uses a unified notation for expressions and substitutions: `${expr}`, where `expr` is a JMESPath expression by the rules of Section 11.6.
 
-Additional rules:
+The `<...>` notation in this standard text is used only as a metavariable for structure description (for example, `entity.<typeName>`).
+The `${...}` notation is used only for expressions and interpolations to be evaluated during validation.
+Plain `{...}` notation has no special semantics unless explicitly stated otherwise by this standard.
 
-1. In an unconditional case (without `when`), potentially missing placeholders in `use` are not allowed.
-2. In a conditional case, `exists` MAY be used in `when` as a regular condition operator; for static safety of `use`, only valid guards by rules of Section 11.6 are counted.
-3. `exists` inside `any`/`not` is not a valid guard for `use`.
-4. If `use` contains potentially missing placeholders, each such placeholder MUST be covered by a valid guard in `when` of the same case.
-5. If `use` does not contain potentially missing placeholders, presence of `exists` in `when` is not a violation by itself.
-6. A static guard used for `use` does not legalize strict operators `eq`/`in` in `when`; strict-operator rules are defined in Section 11.6.
+In positions where standard expects a scalar expression (for example, `required` and `when`), the value MUST be either a YAML boolean or a string consisting entirely of a single `${expr}` interpolation.
+In string templates, any number of `${expr}` interpolations MAY be mixed with literal text.
 
-## 9. Placeholders
+Each `${...}` substring in a context that supports interpolation MUST contain a syntactically valid JMESPath expression.
+Interpolation boundaries MUST be determined with regard to JMESPath syntax rather than by simply searching for the first `}` character.
+If validator can deterministically establish that a `${expr}` interpolation is syntactically invalid or uses an expression that is definitely incompatible with the context, this is a `SchemaError` class violation (Section 14.4).
 
-### 9.1. Supported Set
-
-The standard defines three placeholder classes:
-
-- built-in placeholders (listed below);
-- metadata placeholders `{meta.<field_name>}`;
-- reference placeholders `{refs.<field_name>.<part>}`.
-
-Specific usage contexts for each placeholder class are defined in Section 9.4.
-
-`<...>` notation in this standard text is used only as a metavariable for structure description (for example, `entity.<type_name>`).
-`{...}` notation is used only for placeholders subject to substitution during validation.
-For metadata and reference placeholders inside `{...}`, the same context-reference syntax is used as in expressions in Section 11.6.
-Literal `{` and `}` characters in string values of rules that support placeholders are not allowed.
-
-Built-in placeholders:
-
-- `{id}`
-- `{slug}`
-- `{created_date}`
-- `{updated_date}`
-
-Metadata placeholders use `meta` namespace and have form `{meta.<field_name>}`.
-Reference placeholders use `refs` namespace and have form `{refs.<field_name>.<part>}`.
-
-Arbitrary placeholders are not supported.
-Any substring of form `{...}` that does not match a supported placeholder is a `SchemaError` class violation (Section 14.4).
+In string values of validation rules where interpolation is not allowed by this standard, the presence of a `${...}` substring is a `SchemaError` class violation (Section 14.4).
 
 ### 9.2. `refs.*` Rules
 
-`{refs.<field_name>.id}`, `{refs.<field_name>.type}`, `{refs.<field_name>.slug}`, and `{refs.<field_name>.dir_path}` are computed from the resolution result of reference field `meta.<field_name>`.
+`refs.<fieldName>` is interpreted by the rules of Section 6.4.
+On successful reference resolution, `refs.<fieldName>.id`, `refs.<fieldName>.type`, `refs.<fieldName>.slug`, and `refs.<fieldName>.dirPath` are evaluated as properties of the `refs.<fieldName>` object.
 
-Substitution for `refs.*` is allowed only when the corresponding `entity_ref` field is present and successfully resolved.
-Value semantics:
+In `${expr}` expressions, both `refs.<fieldName>` as a whole and individual `refs.<fieldName>.<part>` properties MAY be used.
+In string interpolation, only expressions that actually produce a string-compatible value by the rules of Section 9.3 are allowed.
 
-- `id` - `id` value of target entity;
-- `type` - target entity type (key name in `entity`);
-- `slug` - `slug` value of target entity;
-- `dir_path` - path to directory of target entity file relative to specification dataset root in POSIX form, without trailing `/`.
+### 9.3. Converting an Interpolation Result to a String
 
-### 9.3. Repeated Placeholder Use
+For each `${expr}` interpolation in a string context, result of expression MUST have one of the following types:
 
-If the same placeholder is used more than once in a pattern, all its occurrences MUST match the same value.
+- `string`
+- `number`
+- `boolean`
 
-### 9.4. Placeholder Usage Contexts
+Conversion to string is performed as follows:
 
-Placeholder substitution is allowed only in the following string contexts:
+- `string` - the value is used as is;
+- `number` - a deterministic decimal string representation is used according to rules of the implementation profile;
+- `boolean` - the string `true` or `false` is used.
 
-- `path_pattern.cases[].use`:
-  - `{id}`, `{slug}`, `{created_date}`, `{updated_date}`;
-  - `{meta.<field_name>}`;
-  - `{refs.<field_name>.<part>}`.
-- `meta.fields.<field_name>.schema.const` (only when `const` has string type):
-  - `{id}`, `{slug}`, `{created_date}`, `{updated_date}`;
-  - `{meta.<field_name>}`;
-  - `{refs.<field_name>.<part>}`.
-- `meta.fields.<field_name>.schema.enum[*]` (only for string `enum` items):
-  - `{id}`, `{slug}`, `{created_date}`, `{updated_date}`;
-  - `{meta.<field_name>}`;
-  - `{refs.<field_name>.<part>}`.
+Value `null`, as well as values of types `array` and `object`, are not allowed in string interpolation and are an `InstanceError` class violation (Section 14.4).
 
-Using a placeholder not included in the allowed set for the corresponding context is a `SchemaError` class violation (Section 14.4).
-In other string values of validation rules where this standard does not allow placeholder substitution, presence of a substring of form `{...}` is a `SchemaError` class violation (Section 14.4).
-If one of the contexts in this section uses a context-allowed placeholder but the corresponding value is absent or cannot be computed on a specific implementation (including `missing` and failed reference resolution), this is an `InstanceError` class violation (Section 14.4).
+### 9.4. Interpolation Usage Contexts
+
+`${expr}` interpolation is allowed only in the following string contexts:
+
+- `pathTemplate.cases[].use`;
+- `meta.fields.<fieldName>.schema.const` (only when `const` has string type);
+- `meta.fields.<fieldName>.schema.enum[*]` (only for string `enum` items).
+
+If, in one of the contexts in this section, a `${expr}` interpolation cannot be evaluated for a specific implementation or produces a result incompatible with string interpolation, this is an `InstanceError` class violation (Section 14.4).
 
 ## 10. Required Fields of Any Entity Implementation
 
-The following fields are built-in fields of an entity implementation and MUST NOT be re-declared as built-in schema requirements. Fields `type`, `id`, `slug`, `created_date`, and `updated_date` are required for any entity implementation:
+The following fields are built-in fields of an entity implementation and MUST NOT be re-declared as built-in schema requirements. Fields `type`, `id`, `slug`, `createdDate`, and `updatedDate` are required for any entity implementation:
 
 - `type`
 - `id`
 - `slug`
-- `created_date`
-- `updated_date`
+- `createdDate`
+- `updatedDate`
 
 ## 11. Validation Rules for Entity Implementation Fields
 
 For a Markdown entity implementation (a `.md` file), `YAML frontmatter` MUST be present at the beginning of the file.
-Built-in fields (`type`, `id`, `slug`, `created_date`, `updated_date`) and metadata fields validated by `meta.fields` rules are specified as fields of one YAML mapping (`mapping`) in this block.
+Built-in fields (`type`, `id`, `slug`, `createdDate`, `updatedDate`) and metadata fields validated by `meta.fields` rules are specified as fields of one YAML mapping (`mapping`) in this block.
 This standard does not require presence of `meta` block/key itself in entity implementation.
 
 For Markdown implementation, `YAML frontmatter` MUST start at the first line of the file with `---` separator and contain one top-level YAML mapping (`mapping`).
 `YAML frontmatter` MUST end with a separate `---` or `...` separator line before document body starts.
-Duplicate keys in `YAML frontmatter` (including nested YAML mappings) are not allowed; if the YAML parser used allows them by default, validator MUST enable duplicate-key prohibition mode or perform equivalent additional validation.
+Duplicate keys in `YAML frontmatter` (including nested YAML mappings) are not allowed; if the YAML parser used allows them by default, validator MUST enable duplicate-key prohibition mode or perform equivalent additional check.
 `YAML frontmatter` parsing MUST follow YAML 1.2.2 with the typing model fixed in implementation profile (Section 6.5).
 Metadata type validation MUST be performed against this parsing result, without implicit type conversion by validator.
 
@@ -501,15 +462,15 @@ Built-in `type` field rules:
 
 - field is required;
 - value MUST be a string;
-- value MUST match one of `entity.<type_name>` keys in schema.
+- value MUST match one of `entity.<typeName>` keys in schema.
 
-Allowed `YAML frontmatter` keys for a specific implementation: built-in fields (`type`, `id`, `slug`, `created_date`, `updated_date`) and fields declared in `meta.fields` of corresponding entity type.
+Allowed `YAML frontmatter` keys for a specific implementation: built-in fields (`type`, `id`, `slug`, `createdDate`, `updatedDate`) and fields declared in `meta.fields` of corresponding entity type.
 Any other `YAML frontmatter` key is an `InstanceError` class violation (Section 14.4).
 
 ### 11.1. `id` Field
 
 - required;
-- MUST match format `"{id_prefix}-N"` for the type specified in `type` field, where `N` is a non-negative integer in unsigned decimal notation;
+- MUST match format `"{idPrefix}-N"` for the type specified in `type` field, where `N` is a non-negative integer in unsigned decimal notation;
 - MUST be globally unique across the whole specification dataset (among all entity types).
 
 ### 11.2. `slug` Field
@@ -518,47 +479,35 @@ Any other `YAML frontmatter` key is an `InstanceError` class violation (Section 
 - MUST be unique within entity type;
 - MUST match regular expression `^[a-z0-9]+(?:-[a-z0-9]+)*$` (validation against whole `slug` value).
 
-### 11.3. `created_date` and `updated_date` Fields
+### 11.3. `createdDate` and `updatedDate` Fields
 
 - required;
 - MUST be in RFC 3339 `full-date` format (`YYYY-MM-DD`), which is a restricted profile of ISO 8601;
 - MUST be calendar-valid dates (for example, `3026-02-30` is invalid).
 
-If a value is used in a path pattern (for example, `{created_date}`), comparison MUST be strict (literal match, without format normalization).
+If a value is used in a path template (for example, `${createdDate}`), comparison MUST be strict (literal match, without format normalization).
 
-### 11.4. Reference Fields (`entity_ref`)
+### 11.4. Reference Fields (`entityRef`)
 
-For each field declared in `meta.fields` with `schema.type: entity_ref`, following rules apply:
+For each field declared in `meta.fields` with `schema.type: entityRef`, following rules apply:
 
 - if key is absent and field is not required by Section 11.5, this is allowed;
-- when key is present, its value MUST be an `id` string;
+- when the key is present, its value MUST be an `id` string;
 - key absence and `null` value are not equivalent: `null` is treated as a present `null`-typed value and violates the string type requirement.
 
 Reference resolution and `refTypes` checks are defined in Section 12.3.
 
-### 11.5. General Requiredness Model (`required`, `required_when`)
+### 11.5. General Requiredness Model (`required`)
 
 This model applies to each field description in `meta.fields` (Section 12) and to each section description in `content.sections` (Section 13).
 
-If specified, `required` field MUST be a boolean value.
-If specified, `required_when` field MUST be either a boolean value or an expression by rules of Section 11.6.
+If specified, `required` field MUST be either a boolean value or a `${expr}` expression by rules of Section 11.6.
 
-If `required_when` is omitted, effective `required_when` value is `false`.
-Effective `required` value is determined by following rules:
+If `required` is omitted, its effective value is `true`.
+If `required` is specified as a boolean value, this value is used.
+If `required` is specified as a `${expr}` expression, it is evaluated for specific implementation by rules of Section 11.6.
 
-- if `required` is specified, its boolean value is used;
-- if `required` is omitted and `required_when` is specified, effective `required` value is `false`;
-- if both fields (`required` and `required_when`) are omitted, effective `required` value is `true`.
-
-Simultaneous use of `required: true` and `required_when` key is not allowed and is a `SchemaError` class violation (Section 14.4).
-It is RECOMMENDED to specify `required` explicitly when `required_when` is used.
-Validator is RECOMMENDED to produce an informative warning when `required_when` is specified and `required` is omitted, to make schema author intent explicit and reduce the risk of implicit requiredness changes if `required_when` is removed later.
-
-For a specific implementation, an element is considered required if at least one of conditions holds:
-
-- effective `required` value equals `true`;
-- `required_when` expression evaluates to `true`.
-
+For a specific implementation, an element is considered required if effective `required` value is truth-like.
 In all other cases, element is considered optional.
 
 Examples of requiredness interpretation (informative):
@@ -571,7 +520,7 @@ meta:
         type: string
 ```
 
-For `owner`, both keys (`required`, `required_when`) are absent, so the field is required by default (`required = true`).
+For `owner`, `required` key is absent, so the field is required by default (`required = true`).
 
 ```yaml
 meta:
@@ -580,113 +529,54 @@ meta:
       schema:
         type: string
         enum: [draft, testing, actual, deprecated]
-    test_file:
-      required_when:
-        in: [meta.status, [testing, actual]]
+    testFile:
+      required: ${meta.status == 'testing' || meta.status == 'actual'}
       schema:
         type: string
 ```
 
-For `test_file`, when `required_when` is present and `required` is absent, effective `required` value is `false`; the field becomes required only when `required_when` evaluates to `true`.
+For `testFile`, the field is required only when `${meta.status == 'testing' || meta.status == 'actual'}` expression evaluates to a truth-like value.
 
-### 11.6. `required_when` Expressions
+### 11.6. `${expr}` Expressions
 
-If `required_when` is a boolean value, this value is used.
-If `required_when` is an expression object, object MUST contain exactly one operator key from the list:
+`${expr}` expressions use JMESPath syntax and semantics.
+This standard does not introduce a special expression language on top of JMESPath.
 
-- `eq`
-- `eq?`
-- `in`
-- `in?`
-- `all`
-- `any`
-- `not`
-- `exists`
+The same expression model is used for `required` and `pathTemplate.cases[].when`.
+If `pathTemplate.cases[].when` is specified, it MUST be either a boolean value or a `${expr}` expression by this section.
 
-The same expression model is used for `path_pattern.cases[].when` (Sections 8.3 and 8.6).
-If `path_pattern.cases[].when` is specified, it MUST be a boolean value or an expression by this section.
+Evaluation context for a specific entity implementation MUST contain:
 
-Evaluation context for a specific entity implementation:
+- built-in top-level fields: `type`, `id`, `slug`, `createdDate`, `updatedDate`;
+- object `meta` containing the built-in fields and the fields described in `meta.fields`;
+- object `refs` containing values by rules of Section 6.4 for `entityRef` fields.
 
-- `meta.<field_name>` - value of a field from `YAML frontmatter` of specific implementation (including built-in fields `type`, `id`, `slug`, `created_date`, `updated_date` and fields described in `meta.fields`);
-- `refs.<field_name>` - selector of a successfully resolved reference; allowed only as an argument to the `exists` operator;
-- `refs.<field_name>.<part>` - attribute value of a resolved reference, where `part` is one of `id`, `type`, `slug`, `dir_path`.
+For `meta.<fieldName>` fields with `schema.type: entityRef`, the value in expressions is treated as the original `id` string from `YAML frontmatter`.
+In expressions under this standard, an absent value and a `null` value are not distinguished: if an expression cannot obtain a value at the specified path, result is treated as `null` by rules of JMESPath.
 
-Reference of form `meta.<field_name>` to a name absent among built-in fields and among `meta.fields` keys is not allowed and is a `SchemaError` class violation (Section 14.4).
-Reference of form `refs.<field_name>` to a field not declared as `entity_ref` is not allowed and is a `SchemaError` class violation (Section 14.4).
-Reference of form `refs.<field_name>.<part>` to a field not declared as `entity_ref`, or with an unsupported `part`, is not allowed and is a `SchemaError` class violation (Section 14.4).
-For fields `meta.<field_name>` with `schema.type: entity_ref`, the value in expressions is treated as the original `id` string from `YAML frontmatter`.
-If a valid reference `meta.<field_name>` points to a missing `YAML frontmatter` key, its value is treated as `missing`.
-If a valid reference `refs.<field_name>` points to an absent `YAML frontmatter` field or to a reference that cannot be resolved for a specific implementation, its value is treated as `missing`.
-If a valid reference `refs.<field_name>.<part>` points to an absent `YAML frontmatter` field or to a reference that cannot be resolved for a specific implementation, its value is treated as `missing`.
+Truth-like / false-like semantics are determined by the rules of JMESPath.
+In particular, `false`, `null`, the empty string, the empty array, and the empty object are considered false-like; all other values are considered truth-like.
+Accordingly, `required` and `when` do not have to evaluate specifically to `boolean`: they MAY return any JMESPath value, which is then interpreted according to JMESPath truthiness rules.
 
-Operator semantics:
+If validator can deterministically establish that `${expr}` expression:
 
-- `eq: [A, B]` - strict comparison of two operands; list MUST contain exactly two elements;
-- `eq?: [A, B]` - safe strict comparison of two operands; list MUST contain exactly two elements; if any operand is `missing`, result is `false`;
-- `in: [A, [B1, B2, ...]]` - membership of value `A` in a non-empty list of values; outer list MUST contain exactly two elements, second element MUST be a non-empty list;
-- `in?: [A, [B1, B2, ...]]` - safe membership check; outer list MUST contain exactly two elements, second element MUST be a non-empty list; if checked value `A` or any list element is `missing`, result is `false`;
-- `all: [E1, E2, ...]` - logical AND over a non-empty list of expressions; evaluated left to right with short-circuit;
-- `any: [E1, E2, ...]` - logical OR over a non-empty list of expressions; evaluated left to right with short-circuit;
-- `not: E` - logical negation of an expression;
-- `exists: R` - presence check for reference `R`; `R` MUST be a context reference (`meta.<field_name>`, `refs.<field_name>`, or `refs.<field_name>.<part>`), result is `true` when the corresponding value exists in context. For `meta.<field_name>`, presence is determined by `YAML frontmatter` (key exists; `null` counts as existing). For `refs.<field_name>` and `refs.<field_name>.<part>`, presence is determined by successful reference resolution.
+- is syntactically invalid;
+- uses a context reference incompatible with given schema;
+- or cannot be evaluated correctly in given context,
 
-Operands `A`, `B`, `B1`... MAY be literals (`string`, `integer`, `number`, `boolean`, `null`) or context references (`meta.<field_name>`, `refs.<field_name>.<part>`).
-For `eq`, `eq?`, `in`, `in?`, compared operands MUST be scalar values (`string`, `integer`, `number`, `boolean`, `null`); `array` and `object` literals are not allowed.
-`meta.<field_name>` reference in `eq`, `eq?`, `in`, `in?` is allowed only for built-in fields and for `meta.fields` fields where `schema.type` is in `string`, `integer`, `number`, `boolean`, `null`, `entity_ref`.
-Value of `meta.<field_name>` with `schema.type: entity_ref` in these expressions is treated as the original `id` string from `YAML frontmatter`.
-Field requiredness status (`required`, `required_when`) does not affect admissibility of `meta.<field_name>` reference in `eq?` and `in?`.
-If such a field is absent in a specific implementation, `eq?`/`in?` return `false` by the `missing` rule, and the requiredness violation for that field is diagnosed separately by Section 12.3.
-Violation of these typing constraints is a `SchemaError` class violation (Section 14.4).
+it MAY report this as a `SchemaError` (Section 14.4) already at the schema-validation stage.
 
-Static policy for strict operators `eq` and `in`:
-
-1. In `required_when`, `eq`/`in` are allowed only for reference operands classified as `not potentially-missing` (Sections 3 and 8.6).
-2. In `path_pattern.cases[].when`, `eq`/`in` are allowed only for reference operands classified as `not potentially-missing` (Sections 3 and 8.6).
-3. Presence of `exists` (including combinations via `all`) does not legalize `eq`/`in` with `potentially-missing` operands in either `required_when` or `path_pattern.cases[].when`.
-4. For potentially missing operands, safe operators `eq?`/`in?` MUST be used.
-5. Violation of rules in this item is a `SchemaError` class violation (Section 14.4).
-
-Rules for using `exists` as a static guard in `path_pattern.cases[].when`:
-
-1. `exists` in `path_pattern.cases[].when` has the same semantics as in `required_when` (this section) and MAY be used as a regular condition operator.
-2. For `case.use` checks, only the following forms are valid guards:
-   - `when: { exists: R }`;
-   - `when: { all: [ { exists: R1 }, { exists: R2 }, ..., E1, E2, ... ] }`.
-3. For `{meta.<field_name>}` in `case.use`, only `exists: meta.<field_name>` is a valid guard.
-4. For `{refs.<field_name>.<part>}` in `case.use`, `exists: refs.<field_name>` or `exists: refs.<field_name>.<part2>` is a valid guard, where `<part2>` is any supported `part` from `id`, `type`, `slug`, `dir_path`.
-5. `exists` inside `any` or `not` is not a valid guard for `case.use`.
-6. Guard scope is limited to one `path_pattern` case and one `all` list; a guard is not transferred across different `all` lists, in/out of `any`, in/out of `not`, or across different cases.
-7. If `case.use` contains potentially missing placeholders, each such placeholder MUST be covered by a valid guard in `when` of the same case.
-8. If `case.use` contains no potentially missing placeholders, `exists` in `when` does not require interpretation as a guard and is evaluated only as part of the condition.
-9. Static `exists` guard in `path_pattern.cases[].when` is not applied in `required_when` and does not legalize strict operators.
-10. Violation of rules in this item is a `SchemaError` class violation (Section 14.4).
-
-If soft conditional logic is required for potentially missing values, `eq?`/`in?` SHOULD be used.
-In this case, absence of value is handled by `missing -> false` rule.
-
-Strict comparison for `eq`, `eq?`, `in`, `in?` is performed by language-independent rules:
-
-- `string` and `boolean` - exact value equality;
-- `null` equals only `null`;
-- `integer` and `number` - numeric value equality.
-
-Any other structure of `required_when` or `path_pattern.cases[].when` (unsupported operator, invalid argument cardinality, invalid argument type) is a `SchemaError` class violation (Section 14.4).
-
-Example of valid `when` for `path_pattern.cases` with an optional field (informative):
+Example of valid `when` for `pathTemplate.cases` with an optional field (informative):
 
 ```yaml
 entity:
   feature:
-    id_prefix: "FEAT"
-    path_pattern:
+    idPrefix: "FEAT"
+    pathTemplate:
       cases:
-        - when:
-            all:
-              - exists: meta.owner
-              - eq?: [meta.owner, "SRV-1"]
-          use: "services/{meta.owner}/{slug}.md"
-        - use: "features/{slug}.md"
+        - when: ${meta.owner == 'SRV-1'}
+          use: "services/${meta.owner}/${slug}.md"
+        - use: "features/${slug}.md"
     meta:
       fields:
         owner:
@@ -696,46 +586,33 @@ entity:
             enum: [SRV-1, SRV-2]
 ```
 
-Example of invalid strict condition for a potentially missing operand (informative):
-
-```yaml
-required_when:
-  all:
-    - exists: meta.owner
-    - eq: [meta.owner, "SRV-1"]
-```
-
-Norm: schema is invalid (`SchemaError`), because `exists` does not legalize strict `eq` for a potentially missing operand.
-
-Example of conditional requiredness (informative):
+Example of conditional requiredness of a field (informative):
 
 ```yaml
 meta:
   fields:
     status:
-      required: true
       schema:
         type: string
         enum: [draft, testing, actual, deprecated]
-    test_file:
-      required_when:
-        in: [meta.status, [testing, actual]]
+    testFile:
+      required: ${meta.status == 'testing' || meta.status == 'actual'}
       schema:
         type: string
 ```
 
-Example of safe check for a potentially missing reference (informative):
+Example of checking resolved reference via `refs.<field>` (informative):
 
 ```yaml
 meta:
   fields:
     owner:
+      required: false
       schema:
-        type: entity_ref
+        type: entityRef
         refTypes: [service]
-    owner_binding:
-      required_when:
-        eq?: [refs.owner.type, "service"]
+    ownerBinding:
+      required: ${refs.owner.type == 'service'}
       schema:
         type: string
 ```
@@ -744,7 +621,7 @@ meta:
 
 ### 12.1. `meta.fields` Field
 
-If `meta` block is specified, it may contain `fields` - a mapping of metadata field descriptions for this entity type.
+If `meta` block is specified, it MAY contain `fields` - a mapping of metadata field descriptions for this entity type.
 `meta` in schema describes `YAML frontmatter` fields of entity implementation (Markdown document).
 These fields are specified at top level in `YAML frontmatter` and are not represented as a `meta` block in the implementation itself.
 
@@ -758,36 +635,36 @@ Order of keys in `meta.fields` does not affect validation result.
 Field name in `meta.fields`:
 
 - MUST be a non-empty ASCII string and MUST fully match regular expression `^[A-Za-z_][A-Za-z0-9_-]*$`;
-- MUST NOT match the names of built-in fields `type`, `id`, `slug`, `created_date`, `updated_date`.
+- MUST NOT match the names of built-in fields `type`, `id`, `slug`, `createdDate`, `updatedDate`.
 
-For each element `meta.fields.<field_name>`, the following are specified:
+For each element `meta.fields.<fieldName>`, the following are specified:
 
 - `required` (optional; if omitted, effective value is determined by rules of Section 11.5)
-- `required_when` (optional; if omitted, effective value is `false` by rules of Section 11.5)
 - `description` (optional; non-empty string, informative field)
 - `schema`
 
 If specified, `description` does not affect validation result.
 
-Allowed keys of `meta.fields.<field_name>`: `required`, `required_when`, `description`, `schema`.
+Allowed keys of `meta.fields.<fieldName>`: `required`, `description`, `schema`.
 Other keys are not allowed and are a `SchemaError` class violation (Section 14.4).
-Key `name` inside `meta.fields.<field_name>` is not allowed and is a `SchemaError` class violation (Section 14.4).
+Key `name` inside `meta.fields.<fieldName>` is not allowed and is a `SchemaError` class violation (Section 14.4).
 
-`required` and `required_when` fields for `meta.fields.<field_name>` are interpreted by the general requiredness model (Section 11.5).
+`required` field for `meta.fields.<fieldName>` is interpreted by the general requiredness model (Section 11.5).
 
 `schema` field defines constraints for metadata field value and MUST be an object.
 Supported `schema` keys are defined in Section 12.2.
-Other `schema` keys are not allowed and are a `SchemaError` class violation (Section 14.4).
+Other keys in `schema` are not allowed and are a `SchemaError` class violation (Section 14.4).
 
-A field from `meta.fields` may be used in `path_pattern` (Sections 8.5 and 8.6):
+A field from `meta.fields` MAY be used in `${expr}` expressions by rules of Section 11.6.
+In string interpolation contexts (Section 9.4), the following are allowed:
 
-- as `{meta.<field_name>}` - only if `schema.type` equals `entity_ref`, or if `schema.enum` is specified and `schema.type` equals `string`, `integer`, `boolean`, or `null`;
-- as `{refs.<field_name>.<part>}` - only if `schema.type` equals `entity_ref`.
+- `${meta.<fieldName>}` - only if `schema.type` equals `string`, `number`, `integer`, `boolean`, or `entityRef`;
+- `${refs.<fieldName>.<part>}` - only if `schema.type` equals `entityRef`.
 
 ### 12.2. `schema` Field
 
-`schema` field uses a restricted subset of JSON Schema Draft 2020-12 (Core + Validation) to validate metadata field value.
-Keywords listed in this section have semantics of the specified JSON Schema dialect, unless otherwise defined by this standard.
+`schema` field uses a restricted subset of JSON Schema Draft 2020-12 (Core + Validation) to validate metadata field values.
+Keywords listed in this section have semantics of the specified JSON Schema dialect unless otherwise defined by this standard.
 This standard defines following `schema` keys:
 
 - `type` (required)
@@ -810,47 +687,44 @@ Supported `type` values:
 - `boolean`
 - `array`
 - `null`
-- `entity_ref` (extension of this standard; absent in JSON Schema Draft 2020-12)
+- `entityRef` (extension of this standard; absent in JSON Schema Draft 2020-12)
 
 `type` validation MUST be strict, without implicit type conversion (for example, string `"1"` is not equal to number `1`).
 For `type: integer`, value MUST be a number without fractional part.
 Composite `type` forms (for example, `string|null`, `array<string>`) are not supported by this standard.
-`type: entity_ref` defines a specialized reference type; its value in `YAML frontmatter` MUST be an `id` string validated by referential integrity rules (Section 12.3).
+`type: entityRef` defines a specialized reference type; its value in `YAML frontmatter` MUST be an `id` string validated by referential integrity rules (Section 12.3).
 Use of `type: object` is not supported in this version of the standard and is a `SchemaError` class violation (Section 14.4).
 
 If specified, `const` key defines value that actual field value MUST strictly match (by value and type after YAML parsing).
-If `const` has string type, only placeholders allowed for context `meta.fields.<field_name>.schema.const` (Section 9.4) are permitted in it (for example, `{refs.owner.slug}`).
-If `const` has string type, any substring in curly braces MUST be a context-allowed placeholder by Section 9.4; literal `{` and `}` are not allowed.
-If substitution of a context-allowed placeholder in string `const` cannot be computed for a specific implementation, this is an `InstanceError` class violation (Section 14.4).
-For `type: entity_ref`, if `const` is specified, `const` value MUST be an `id` string and is validated in addition to referential integrity rules.
+If `const` has string type, only `${expr}` interpolations allowed for context `meta.fields.<fieldName>.schema.const` (Section 9.4) are permitted in it, for example `${refs.owner.slug}`.
+If a `${expr}` interpolation in a string `const` cannot be evaluated for a specific implementation, this is an `InstanceError` class violation (Section 14.4).
+For `type: entityRef`, if `const` is specified, `const` value MUST be an `id` string and is validated in addition to referential integrity rules.
 
 Example of metadata field where value is fixed to `slug` of resolved referenced entity (informative):
 
 ```yaml
-owner_slug:
-  required_when:
-    exists: refs.owner
+ownerSlug:
+  required: ${refs.owner}
   schema:
     type: string
-    const: "{refs.owner.slug}"
+    const: "${refs.owner.slug}"
 ```
 
 If specified, `enum` key MUST be a non-empty list.
 Actual field value MUST strictly match at least one `enum` item.
-If an `enum` item has string type, only placeholders allowed for context `meta.fields.<field_name>.schema.enum[*]` (Section 9.4) are permitted in it.
-If an `enum` item has string type, any substring in curly braces MUST be a context-allowed placeholder by Section 9.4; literal `{` and `}` are not allowed.
-If substitution of a context-allowed placeholder in a string `enum` item cannot be computed for a specific implementation, this is an `InstanceError` class violation (Section 14.4).
-If both `type` and `enum` are specified, each `enum` item MUST conform to `type`; otherwise it is a `SchemaError` class violation (Section 14.4).
-For `type: entity_ref`, if `enum` is specified, each `enum` item MUST be an `id` string and is validated in addition to referential integrity rules.
+If an `enum` item has string type, only `${expr}` interpolations allowed for context `meta.fields.<fieldName>.schema.enum[*]` (Section 9.4) are permitted in it.
+If a `${expr}` interpolation in a string `enum` item cannot be evaluated for a specific implementation, this is an `InstanceError` class violation (Section 14.4).
+If both `type` and `enum` are specified, each `enum` item MUST conform to `type`; otherwise this is a `SchemaError` class violation (Section 14.4).
+For `type: entityRef`, if `enum` is specified, each `enum` item MUST be an `id` string and is validated in addition to referential integrity rules.
 
 `items` key is allowed only with `type: array`.
 `items` value MUST be a `schema` object and applies to each array element.
 
-`minItems`, `maxItems`, `uniqueItems` keys are allowed only with `type: array`.
+`minItems`, `maxItems`, and `uniqueItems` keys are allowed only with `type: array`.
 `minItems` and `maxItems` MUST be non-negative integers; if both keys are specified, `minItems <= maxItems` MUST hold.
 `uniqueItems`, if specified, MUST be a boolean value.
 
-`refTypes` key is allowed only with `type: entity_ref`.
+`refTypes` key is allowed only with `type: entityRef`.
 
 If specified, `refTypes` key MUST be a non-empty list of strings without duplicates.
 Each `refTypes` item MUST reference an existing entity type (a key in `entity`).
@@ -869,40 +743,35 @@ tags:
 
 ### 12.3. Validation Semantics
 
-For each element `meta.fields.<field_name>`, validator MUST use the literal field name from key `field_name`.
+For each element `meta.fields.<fieldName>`, validator MUST use the literal field name from key name `fieldName`.
 
-For each element `meta.fields.<field_name>`, field presence is validated by the following rules:
+For each element `meta.fields.<fieldName>`, field presence is validated by the following rules:
 
-- field is required if effective `required` value equals `true`;
-- field is required if `required_when` expression evaluates to `true` for a specific implementation;
-- otherwise field is optional.
+- field is required if effective `required` value for a specific implementation is truth-like;
+- in all other cases field is optional;
 - absence of a required field is an `InstanceError` class violation (Section 14.4).
-
-If `eq?` or `in?` is used in `required_when`, an absent operand (including an absent required field) is handled only by `missing -> false` rule and does not create a separate evaluation error.
 
 `schema` validation is performed for each present field from `meta.fields` by following rules:
 
 - actual value MUST conform to `schema.type`;
-- if `schema.const` is specified, actual value MUST strictly match it; for string `schema.const`, comparison is performed after placeholder substitution for specific entity implementation;
-- if `schema.enum` is specified, actual value MUST strictly match at least one `schema.enum` item; for string `schema.enum` items, comparison is performed after placeholder substitution for specific entity implementation;
-- if `schema.type` equals `array` and `schema.items` is specified, each array element MUST be validated against `schema.items` recursively;
+- if `schema.const` is specified, actual value MUST strictly match it; for string `schema.const`, comparison is performed after evaluating `${expr}` interpolations for specific entity implementation;
+- if `schema.enum` is specified, actual value MUST strictly match at least one `schema.enum` item; for string `schema.enum` items, comparison is performed after evaluating `${expr}` interpolations for specific entity implementation;
+- if `schema.type` equals `array` and `schema.items` is specified, each array element MUST be validated recursively against `schema.items`;
 - if `schema.type` equals `array` and `schema.minItems` is specified, array length MUST be at least `minItems`;
 - if `schema.type` equals `array` and `schema.maxItems` is specified, array length MUST be at most `maxItems`;
-- if `schema.type` equals `array` and `schema.uniqueItems: true` is specified, array elements MUST be pairwise distinct under strict value comparison.
-- if `schema.type` equals `entity_ref`, actual value MUST be an `id` string of an existing entity:
-  - with `schema.refTypes`, reference MUST resolve to exactly one existing entity of one of specified types and match `id` format of that type;
+- if `schema.type` equals `array` and `schema.uniqueItems: true` is specified, array elements MUST be pairwise distinct under strict value comparison;
+- if `schema.type` equals `entityRef`, actual value MUST be an `id` string of an existing entity:
+  - with `schema.refTypes`, reference MUST resolve to exactly one existing entity of one of the specified types and match the `id` format of that type;
   - if `schema.refTypes` is not specified, reference MUST resolve to exactly one existing entity among all `entity` types by globally unique `id` (Section 11.1);
-  - on successful resolution, reference forms context `refs.<field_name>.*` by rules of Sections 6.4 and 9.2.
+  - on successful resolution, reference forms the `refs.<fieldName>.*` context by rules of Sections 6.4 and 9.2.
 
-If field value is used in `path_pattern` through placeholder by rules of Section 8.5, validator MUST:
+When validating `pathTemplate`, validator MUST:
 
-- first validate field by `meta.fields` rules (including `required`, `required_when`, `schema.type`, and `schema.enum`);
-- then substitute values into path pattern:
-  - for `{meta.<field_name>}`, use actual field value in string representation (`string` as-is, `integer` in decimal notation, `boolean` as `true`/`false`, `null` as `null`; for `entity_ref`, the original `id` string from `YAML frontmatter`);
-  - for `{refs.<field_name>.<part>}`, use the corresponding value of the resolved target entity;
-- compare result to implementation path by general `path_pattern` rules.
+- first validate metadata by `meta.fields` rules (including `required`, `schema.type`, `schema.const`, and `schema.enum`);
+- then evaluate the selected path template by the rules of Sections 8.5, 8.6, 9, and 11.6;
+- compare result with implementation path by general `pathTemplate` rules.
 
-Additional `YAML frontmatter` fields (beyond built-in fields and `meta.fields` fields) are not allowed and are an `InstanceError` class violation (Section 14.4).
+Additional `YAML frontmatter` fields (beyond the built-in fields and the `meta.fields` fields) are not allowed and are an `InstanceError` class violation (Section 14.4).
 
 ## 13. `content` Rules
 
@@ -910,59 +779,57 @@ Additional `YAML frontmatter` fields (beyond built-in fields and `meta.fields` f
 
 `content.sections` defines an ordered mapping of sections to validate in the document body.
 If specified, `content.sections` MUST be a non-empty YAML mapping.
-Order of keys in `content.sections` in the schema is the canonical section order for this entity type.
+The order of keys in `content.sections` in the schema is the canonical section order for this entity type.
 
 Allowed keys of `content` object: `sections`.
 Other keys of `content` object are not allowed and are a `SchemaError` class violation (Section 14.4).
 
 Each key of `content.sections` defines a section label (`anchor label`) and:
 
-- MUST be a non-empty ASCII string and MUST fully match regular expression `^[A-Za-z_][A-Za-z0-9_-]*$`.
+- MUST be a non-empty ASCII string and MUST fully match the regular expression `^[A-Za-z_][A-Za-z0-9_-]*$`.
 
-Each element `content.sections.<section_name>` MUST be an object with the following fields:
+Each element `content.sections.<sectionName>` MUST be an object with the following fields:
 
-- `required` (optional; if omitted, effective value is determined by rules of Section 11.5) - boolean value defining unconditional requiredness of section;
-- `required_when` (optional; if omitted, effective value is `false` by rules of Sections 11.5 and 11.6) - boolean value or expression defining conditional requiredness of section;
-- `title` (optional) - string or non-empty list of non-empty strings without duplicates; defines allowed section heading text;
-- `description` (optional) - non-empty string, informative field.
+- `required` (optional; if omitted, effective value is determined by rules of Section 11.5) - boolean value or `${expr}` expression defining section requiredness;
+- `title` (optional) - string or non-empty list of non-empty strings without duplicates; defines allowed text of the section heading;
+- `description` (optional) - a non-empty string, informative field.
 
 If specified, `description` does not affect validation result.
 
-Allowed keys of `content.sections.<section_name>`: `required`, `required_when`, `title`, `description`.
+Allowed keys of `content.sections.<sectionName>`: `required`, `title`, `description`.
 Other keys are not allowed and are a `SchemaError` class violation (Section 14.4).
-Key `name` inside `content.sections.<section_name>` is not allowed and is a `SchemaError` class violation (Section 14.4).
+Key `name` inside `content.sections.<sectionName>` is not allowed and is a `SchemaError` class violation (Section 14.4).
 
 If `title` is specified as a string, for validation purposes it is treated as a single-item list.
 
-`required` and `required_when` fields for `content.sections.<section_name>` are interpreted by the general requiredness model (Section 11.5).
+`required` field for `content.sections.<sectionName>` is interpreted by the general requiredness model (Section 11.5).
 
 ### 13.2. Validation Semantics
 
-Section validation is performed by a normalized section model and by presence of section label (`anchor label`), not by exact heading text.
+Section validation is performed using a normalized section model and by presence of section label (`anchor label`), not by exact heading text.
 
-Label in key `content.sections.<section_name>` is specified without `#` prefix (for example, `goal`) and compared case-sensitively.
+Label in key `content.sections.<sectionName>` is specified without `#` prefix (for example, `goal`) and compared case-sensitively.
 Section labels within one document MUST be unique; repetition of the same label is an `InstanceError` class violation (Section 14.4).
 
 For Markdown implementation, validator MUST build an internal normalized section list in form `{ label, title }`.
-`label` MUST be extracted only from explicit marking in one of canonical syntaxes:
+`label` MUST be extracted only from explicit marking in one of the canonical syntaxes:
 
-- link in heading line: `[<title>](#<label>)`;
-- label attribute at end of heading line: `<title> {#<label>}`.
+- a link in heading line: `[<title>](#<label>)`;
+- a label attribute at end of heading line: `<title> {#<label>}`.
 
 Form `<title> {#<label>}` is a local extension of this standard and MUST be recognized by validator as a textual heading-line suffix regardless of extension support in a specific Markdown parser.
 
-Automatic derivation of label from heading text without explicit marker is not allowed.
+Automatic derivation of label from heading text without an explicit marker is not allowed.
 
-`title` text for validating `content.sections.<section_name>.title` is extracted:
+`title` text for validating `content.sections.<sectionName>.title` is extracted:
 
-- for `[<title>](#<label>)` form - from link text part `<title>`;
-- for `<title> {#<label>}` form - from heading text without `{#<label>}` suffix.
+- for `[<title>](#<label>)` form, from link text part `<title>`;
+- for `<title> {#<label>}` form, from heading text without `{#<label>}` suffix.
 
-For each element `content.sections.<section_name>`, validator MUST apply the following rules:
+For each element `content.sections.<sectionName>`, validator MUST apply the following rules:
 
-- if effective `required` value equals `true`, the section with label `section_name` is required;
-- if `required_when` expression evaluates to `true` for a specific implementation, the section with label `section_name` is required;
-- if effective `required` value equals `false` and `required_when` expression evaluates to `false`, absence of the section with label `section_name` is not an error;
+- if effective `required` value for a specific implementation is truth-like, the section with label `sectionName` is required;
+- if effective `required` value for a specific implementation is false-like, absence of the section with label `sectionName` is not an error;
 - if `title` is specified and section is found, heading text of this section MUST strictly match at least one allowed `title` value (case-sensitive comparison).
 
 Example of allowed heading for `goal` section (informative):
@@ -983,8 +850,8 @@ A section is considered found if the required label is present.
 
 This standard defines three conformance classes:
 
-- `Schema-conformant` - correctness of schema itself;
-- `Dataset-conformant` - correctness of specification dataset relative to schema;
+- `Schema-conformant` - correctness of the schema itself;
+- `Dataset-conformant` - correctness of the specification dataset relative to the schema;
 - `Validator-conformant` - correctness of validator implementation behavior.
 
 ### 14.1. Schema Conformance (`Schema-conformant`)
@@ -992,11 +859,11 @@ This standard defines three conformance classes:
 A schema is conformant to the standard if all mandatory requirements of this standard applicable to schema are met, including:
 
 - requirements for top-level structure and entity type descriptions (Sections 4 and 5);
-- requirements for `entity_ref` reference fields and `refs` context (Section 6);
-- requirements for `id_prefix` (Section 7);
-- requirements for `path_pattern` (Section 8);
-- requirements for supported placeholders and their semantics (Section 9);
-- requirements for `meta` block and `meta.fields.<field_name>.schema` field (Section 12);
+- requirements for `entityRef` reference fields and `refs` context (Section 6);
+- requirements for `idPrefix` (Section 7);
+- requirements for `pathTemplate` (Section 8);
+- requirements for `${expr}` interpolations and their semantics (Section 9);
+- requirements for `meta` block and `meta.fields.<fieldName>.schema` field (Section 12);
 - requirements for `content.sections` block (Section 13).
 
 ### 14.2. Specification Dataset Conformance (`Dataset-conformant`)
@@ -1004,8 +871,8 @@ A schema is conformant to the standard if all mandatory requirements of this sta
 A specification dataset is conformant to the standard and schema if:
 
 - each entity implementation is unambiguously classified by type under rules of Section 5.3 and passes validation against that type;
-- uniqueness requirements are met (`slug` within entity type, numeric `id` suffix within entity type, full `id` globally across all entity types);
-- paths, identifiers, metadata, `entity_ref` referential integrity, and required sections are valid.
+- uniqueness requirements are met (`slug` within an entity type, numeric `id` suffix within an entity type, full `id` globally across all entity types);
+- paths, identifiers, metadata, `entityRef` referential integrity, and required sections are valid.
 
 ### 14.3. Validator Conformance (`Validator-conformant`)
 
@@ -1032,22 +899,17 @@ For each diagnostic, validator MUST provide at minimum:
 Normative mapping of violation types to diagnostic classes:
 
 - `SchemaError`:
-  - violations of schema top-level structure and `entity.<type_name>` structure (Sections 4 and 5);
-  - violations of rules for `id_prefix`, `path_pattern`, placeholders, and `required_when`/`when` expressions (Sections 7, 8, 9, 11.6);
-  - using a placeholder in a context where substitution is not supported, or using a placeholder not allowed for the corresponding context (Section 9.4);
-  - violations of static consistency between use of `{meta.<...>}`/`{refs.<...>.<...>}` placeholders in `path_pattern.cases[].use` and value availability (Section 8.6);
-  - use of strict operators `eq`/`in`:
-    - in `required_when` with potentially missing operands;
-    - in `path_pattern.cases[].when` with potentially missing operands;
-  - absence of a valid static guard for potentially missing placeholders in `path_pattern.cases[].use` (Sections 8.6 and 11.6);
-  - violations of `meta.fields.<field_name>.schema` constraints, including incompatible `enum` types, use of unsupported `type: object`, and other Section 12.2 violations;
+  - violations of schema top-level structure and `entity.<typeName>` structure (Sections 4 and 5);
+  - violations of rules for `idPrefix`, `pathTemplate`, `${expr}` interpolations, and `required`/`when` expressions (Sections 7, 8, 9, 11.5, 11.6);
+  - using `${expr}` interpolation in a context where substitution is not supported, or using an expression definitely incompatible with that context (Sections 8.6, 9.1, 9.4, 11.6);
+  - violations of `meta.fields.<fieldName>.schema` constraints, including incompatible `enum` types, use of unsupported `type: object`, and other Section 12.2 violations;
   - violations of closed-world key model for normative schema objects (Sections 4, 5, 8, 12, 13).
 - `InstanceError`:
-  - violations of built-in implementation fields (`type`, `id`, `slug`, `created_date`, `updated_date`) and other validation rules for a specific implementation (Section 11);
-  - `meta.fields` and `content.sections` violations at implementation data level (Sections 12.3 and 13.2);
-  - inability to compute a context-allowed placeholder on a specific implementation (including `path_pattern.cases[].use`, string `schema.const`, and string items of `schema.enum`) due to missing value (`missing`) or failed reference resolution;
-  - `entity_ref` referential integrity violations at implementation data level (Sections 6.3 and 12.3);
-  - inability to classify implementation type due to missing/invalid `type` field or inconsistency between `type` and `id` (Sections 5.3 and 11.1).
+  - violations of built-in implementation fields (`type`, `id`, `slug`, `createdDate`, `updatedDate`) and other validation rules for a specific implementation (Section 11);
+  - `meta.fields` and `content.sections` violations at implementation-data level (Sections 12.3 and 13.2);
+  - inability to compute a context-allowed `${expr}` interpolation on a specific implementation (including `pathTemplate.cases[].use`, string `schema.const`, and string items of `schema.enum`) or obtaining a result incompatible with string interpolation;
+  - `entityRef` referential integrity violations at implementation-data level (Sections 6.3 and 12.3);
+  - inability to classify implementation by type due to a missing/invalid `type` field or inconsistency between `type` and `id` (Sections 5.3 and 11.1).
 - `ProfileError`:
   - absence or incompleteness of required implementation profile (Section 6.5);
   - inability to deterministically apply documented implementation profile when validating a dataset.
@@ -1056,13 +918,14 @@ Normative mapping of violation types to diagnostic classes:
 
 It is recommended to separate checks into two levels:
 
-- schema structural checks (for example, JSON Schema);
-- semantic checks (cross-references, uniqueness, validation of `path_pattern.cases[].when`, static consistency of `path_pattern.cases[].use`, `entity_ref` resolution, normalization of `content.sections`).
+- structural schema checks (for example, JSON Schema);
+- semantic checks (cross-references, uniqueness, validation of `pathTemplate.cases[].when`, evaluation of `pathTemplate.cases[].use`, `entityRef` resolution, normalization of `content.sections`).
 
-In addition to mandatory implementation-profile parameters (Section 6.5), it is recommended to explicitly fix in validator implementation:
+In addition to mandatory implementation-profile parameters (Section 6.5), it is recommended to explicitly define in validator implementation:
 
 - path normalization rule;
 - YAML parser used (library and version) and its typing mode;
-- `entity_ref` reference resolution mechanism.
+- `entityRef` reference resolution mechanism;
+- JMESPath implementation used (library and version, or an equivalent behavioral specification).
 
 This ensures portability and tool compatibility across programming languages and organizations.
