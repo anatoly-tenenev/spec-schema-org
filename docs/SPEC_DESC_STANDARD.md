@@ -3,8 +3,9 @@
 ## Document Status
 
 Status of this revision: `Draft`.
-Last updated: `2026-03-26`.
-Standard version: `0.0.5`.
+Standard creation date: `2026-02-28`.
+Last updated: `2026-04-05`.
+Standard version: `0.0.6`.
 
 Before release `1.0.0`, incompatible schema format changes (breaking changes) are allowed when increasing `MINOR` and/or `MAJOR`.
 
@@ -209,8 +210,9 @@ Regardless of index storage mechanism, validator MUST apply the same resolution 
 ### 6.4. `refs` Context
 
 Value of reference field `meta.<fieldName>` in `YAML frontmatter` remains the original `id` string specified in implementation data.
+In expressions and interpolation, access to reference fields is available only through `refs` namespace.
 
-For each field `meta.<fieldName>` with `schema.type: entityRef`, `refs` namespace MAY be used in expressions and interpolation:
+For each field `meta.<fieldName>` with `schema.type: entityRef`, `refs` namespace MAY be used:
 
 - `refs.<fieldName>`
 - `refs.<fieldName>.id`
@@ -548,10 +550,8 @@ If `pathTemplate.cases[].when` is specified, it MUST be either a boolean value o
 Evaluation context for a specific entity implementation MUST contain:
 
 - built-in top-level fields: `type`, `id`, `slug`, `createdDate`, `updatedDate`;
-- object `meta` containing the built-in fields and the fields described in `meta.fields`;
+- object `meta` containing the built-in fields and only those fields described in `meta.fields` for which `schema.type` does not equal `entityRef`;
 - object `refs` containing values by rules of Section 6.4 for `entityRef` fields.
-
-For `meta.<fieldName>` fields with `schema.type: entityRef`, the value in expressions is treated as the original `id` string from `YAML frontmatter`.
 In expressions under this standard, an absent value and a `null` value are not distinguished: if an expression cannot obtain a value at the specified path, result is treated as `null` by rules of JMESPath.
 
 Truth-like / false-like semantics are determined by the rules of JMESPath.
@@ -655,10 +655,11 @@ Key `name` inside `meta.fields.<fieldName>` is not allowed and is a `SchemaError
 Supported `schema` keys are defined in Section 12.2.
 Other keys in `schema` are not allowed and are a `SchemaError` class violation (Section 14.4).
 
-A field from `meta.fields` MAY be used in `${expr}` expressions by rules of Section 11.6.
+Fields from `meta.fields` MAY be used in `${expr}` expressions by rules of Section 11.6.
+Fields with `schema.type: entityRef` are available only through `refs` namespace.
 In string interpolation contexts (Section 9.4), the following are allowed:
 
-- `${meta.<fieldName>}` - only if `schema.type` equals `string`, `number`, `integer`, `boolean`, or `entityRef`;
+- `${meta.<fieldName>}` - only if `schema.type` equals `string`, `number`, `integer`, or `boolean`;
 - `${refs.<fieldName>.<part>}` - only if `schema.type` equals `entityRef`.
 
 ### 12.2. `schema` Field
@@ -670,7 +671,7 @@ This standard defines following `schema` keys:
 - `type` (required)
 - `const` (optional)
 - `enum` (optional)
-- `items` (optional)
+- `items` (required with `type: array`)
 - `minItems` (optional)
 - `maxItems` (optional)
 - `uniqueItems` (optional)
@@ -686,14 +687,13 @@ Supported `type` values:
 - `integer`
 - `boolean`
 - `array`
-- `null`
 - `entityRef` (extension of this standard; absent in JSON Schema Draft 2020-12)
 
 `type` validation MUST be strict, without implicit type conversion (for example, string `"1"` is not equal to number `1`).
 For `type: integer`, value MUST be a number without fractional part.
 Composite `type` forms (for example, `string|null`, `array<string>`) are not supported by this standard.
 `type: entityRef` defines a specialized reference type; its value in `YAML frontmatter` MUST be an `id` string validated by referential integrity rules (Section 12.3).
-Use of `type: object` is not supported in this version of the standard and is a `SchemaError` class violation (Section 14.4).
+Use of `type: null` and `type: object` is not supported in this version of the standard and is a `SchemaError` class violation (Section 14.4).
 
 If specified, `const` key defines value that actual field value MUST strictly match (by value and type after YAML parsing).
 If `const` has string type, only `${expr}` interpolations allowed for context `meta.fields.<fieldName>.schema.const` (Section 9.4) are permitted in it, for example `${refs.owner.slug}`.
@@ -717,7 +717,7 @@ If a `${expr}` interpolation in a string `enum` item cannot be evaluated for a s
 If both `type` and `enum` are specified, each `enum` item MUST conform to `type`; otherwise this is a `SchemaError` class violation (Section 14.4).
 For `type: entityRef`, if `enum` is specified, each `enum` item MUST be an `id` string and is validated in addition to referential integrity rules.
 
-`items` key is allowed only with `type: array`.
+`items` key is required with `type: array` and is not allowed with other `type` values.
 `items` value MUST be a `schema` object and applies to each array element.
 
 `minItems`, `maxItems`, and `uniqueItems` keys are allowed only with `type: array`.
@@ -756,7 +756,7 @@ For each element `meta.fields.<fieldName>`, field presence is validated by the f
 - actual value MUST conform to `schema.type`;
 - if `schema.const` is specified, actual value MUST strictly match it; for string `schema.const`, comparison is performed after evaluating `${expr}` interpolations for specific entity implementation;
 - if `schema.enum` is specified, actual value MUST strictly match at least one `schema.enum` item; for string `schema.enum` items, comparison is performed after evaluating `${expr}` interpolations for specific entity implementation;
-- if `schema.type` equals `array` and `schema.items` is specified, each array element MUST be validated recursively against `schema.items`;
+- if `schema.type` equals `array`, each array element MUST be validated recursively against `schema.items`;
 - if `schema.type` equals `array` and `schema.minItems` is specified, array length MUST be at least `minItems`;
 - if `schema.type` equals `array` and `schema.maxItems` is specified, array length MUST be at most `maxItems`;
 - if `schema.type` equals `array` and `schema.uniqueItems: true` is specified, array elements MUST be pairwise distinct under strict value comparison;
@@ -902,7 +902,7 @@ Normative mapping of violation types to diagnostic classes:
   - violations of schema top-level structure and `entity.<typeName>` structure (Sections 4 and 5);
   - violations of rules for `idPrefix`, `pathTemplate`, `${expr}` interpolations, and `required`/`when` expressions (Sections 7, 8, 9, 11.5, 11.6);
   - using `${expr}` interpolation in a context where substitution is not supported, or using an expression definitely incompatible with that context (Sections 8.6, 9.1, 9.4, 11.6);
-  - violations of `meta.fields.<fieldName>.schema` constraints, including incompatible `enum` types, use of unsupported `type: object`, and other Section 12.2 violations;
+  - violations of `meta.fields.<fieldName>.schema` constraints, including incompatible `enum` types, use of unsupported `type: null` and `type: object`, missing `items` with `type: array`, and other Section 12.2 violations;
   - violations of closed-world key model for normative schema objects (Sections 4, 5, 8, 12, 13).
 - `InstanceError`:
   - violations of built-in implementation fields (`type`, `id`, `slug`, `createdDate`, `updatedDate`) and other validation rules for a specific implementation (Section 11);
