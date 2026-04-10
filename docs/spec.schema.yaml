@@ -1,4 +1,4 @@
-version: 0.0.5
+version: 0.0.7
 entity:
   domain:
     idPrefix: DOM
@@ -16,7 +16,7 @@ entity:
         domain:
           schema:
             type: entityRef
-            refTypes: [domain]
+            refType: domain
         tier:
           schema:
             type: string
@@ -35,7 +35,7 @@ entity:
           required: false
           schema:
             type: entityRef
-            refTypes: [service]
+            refType: service
         owner:
           schema:
             type: string
@@ -51,7 +51,7 @@ entity:
           required: false
           schema:
             type: entityRef
-            refTypes: [feature]
+            refType: feature
         test_file:
           required: ${meta.status == 'testing' || meta.status == 'actual'}
           schema:
@@ -65,7 +65,7 @@ entity:
         acceptance:
           title: Acceptance Criteria
         rollout:
-          required: "${meta.service}"
+          required: ${meta.service}
           title: Rollout
 
   adr:
@@ -76,7 +76,7 @@ entity:
         context:
           schema:
             type: entityRef
-            refTypes: [domain, service, feature]
+            refType: [domain, service, feature]
         decision_status:
           schema:
             type: string
@@ -88,7 +88,7 @@ entity:
         supersedes:
           schema:
             type: entityRef
-            refTypes: [adr]
+            refType: adr
     content:
       sections:
         context:
