@@ -552,6 +552,7 @@ Evaluation context for a specific entity implementation MUST contain:
 - built-in top-level fields: `type`, `id`, `slug`, `createdDate`, `updatedDate`;
 - object `meta` containing the built-in fields and only those fields described in `meta.fields` for which `schema.type` does not equal `entityRef`;
 - object `refs` containing values by rules of Section 6.4 for `entityRef` fields.
+
 In expressions under this standard, an absent value and a `null` value are not distinguished: if an expression cannot obtain a value at the specified path, result is treated as `null` by rules of JMESPath.
 
 Truth-like / false-like semantics are determined by the rules of JMESPath.
