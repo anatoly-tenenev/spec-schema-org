@@ -4,8 +4,8 @@
 
 Status of this revision: `Draft`.
 Standard creation date: `2026-02-28`.
-Last updated: `2026-04-05`.
-Standard version: `0.0.6`.
+Last updated: `2026-04-10`.
+Standard version: `0.0.7`.
 
 Before release `1.0.0`, incompatible schema format changes (breaking changes) are allowed when increasing `MINOR` and/or `MAJOR`.
 
@@ -198,12 +198,12 @@ Reference field name is chosen by schema author according to domain semantics (f
 A single `entityRef` field value defines a reference to one entity.
 Multiple relationships are represented by separate fields or via arrays under general `schema.type: array` rules (Section 12.2).
 
-Allowed target entity types are restricted by `schema.refTypes` (Sections 12.2 and 12.3).
+Allowed target entity types are restricted by `schema.refType` (Sections 12.2 and 12.3).
 
 ### 6.3. Reference Resolution
 
 For each present `entityRef` reference, validator MUST unambiguously determine target entity in the specification dataset.
-Resolution is performed by string `id` value of the reference, taking `refTypes` constraints into account when present.
+Resolution is performed by string `id` value of the reference, taking `refType` constraint into account when present.
 
 Regardless of index storage mechanism, validator MUST apply the same resolution rule across the whole specification dataset.
 
@@ -355,7 +355,7 @@ entity:
           required: false
           schema:
             type: entityRef
-            refTypes: [service]
+            refType: service
 ```
 
 Equivalent short form (informative):
@@ -497,7 +497,7 @@ For each field declared in `meta.fields` with `schema.type: entityRef`, followin
 - when the key is present, its value MUST be an `id` string;
 - key absence and `null` value are not equivalent: `null` is treated as a present `null`-typed value and violates the string type requirement.
 
-Reference resolution and `refTypes` checks are defined in Section 12.3.
+Reference resolution and `refType` checks are defined in Section 12.3.
 
 ### 11.5. General Requiredness Model (`required`)
 
@@ -610,7 +610,7 @@ meta:
       required: false
       schema:
         type: entityRef
-        refTypes: [service]
+        refType: service
     ownerBinding:
       required: ${refs.owner.type == 'service'}
       schema:
@@ -675,7 +675,7 @@ This standard defines following `schema` keys:
 - `minItems` (optional)
 - `maxItems` (optional)
 - `uniqueItems` (optional)
-- `refTypes` (optional)
+- `refType` (optional)
 
 Other `schema` keys are not allowed and are a `SchemaError` class violation (Section 14.4).
 
@@ -724,10 +724,12 @@ For `type: entityRef`, if `enum` is specified, each `enum` item MUST be an `id` 
 `minItems` and `maxItems` MUST be non-negative integers; if both keys are specified, `minItems <= maxItems` MUST hold.
 `uniqueItems`, if specified, MUST be a boolean value.
 
-`refTypes` key is allowed only with `type: entityRef`.
+`refType` key is allowed only with `type: entityRef`.
 
-If specified, `refTypes` key MUST be a non-empty list of strings without duplicates.
-Each `refTypes` item MUST reference an existing entity type (a key in `entity`).
+If specified, `refType` key MUST be either a string defining one allowed entity type, or a non-empty list of strings without duplicates.
+String `refType` value and each `refType` list item MUST reference an existing entity type (a key in `entity`).
+For validation, `refType` is interpreted as a set of allowed types: a string defines a one-element set, a list defines a set of the listed elements.
+For example, `refType: service` and `refType: [service, domain]` are both valid forms.
 
 Example describing an array of strings (informative):
 
@@ -761,8 +763,8 @@ For each element `meta.fields.<fieldName>`, field presence is validated by the f
 - if `schema.type` equals `array` and `schema.maxItems` is specified, array length MUST be at most `maxItems`;
 - if `schema.type` equals `array` and `schema.uniqueItems: true` is specified, array elements MUST be pairwise distinct under strict value comparison;
 - if `schema.type` equals `entityRef`, actual value MUST be an `id` string of an existing entity:
-  - with `schema.refTypes`, reference MUST resolve to exactly one existing entity of one of the specified types and match the `id` format of that type;
-  - if `schema.refTypes` is not specified, reference MUST resolve to exactly one existing entity among all `entity` types by globally unique `id` (Section 11.1);
+  - with `schema.refType`, reference MUST resolve to exactly one existing entity of one of the types allowed by `refType` and match the `id` format of that type;
+  - if `schema.refType` is not specified, reference MUST resolve to exactly one existing entity among all `entity` types by globally unique `id` (Section 11.1);
   - on successful resolution, reference forms the `refs.<fieldName>.*` context by rules of Sections 6.4 and 9.2.
 
 When validating `pathTemplate`, validator MUST:
@@ -791,7 +793,7 @@ Each key of `content.sections` defines a section label (`anchor label`) and:
 Each element `content.sections.<sectionName>` MUST be an object with the following fields:
 
 - `required` (optional; if omitted, effective value is determined by rules of Section 11.5) - boolean value or `${expr}` expression defining section requiredness;
-- `title` (optional) - string or non-empty list of non-empty strings without duplicates; defines allowed text of the section heading;
+- `title` (optional) - non-empty string; defines allowed text of the section heading;
 - `description` (optional) - a non-empty string, informative field.
 
 If specified, `description` does not affect validation result.
@@ -799,8 +801,6 @@ If specified, `description` does not affect validation result.
 Allowed keys of `content.sections.<sectionName>`: `required`, `title`, `description`.
 Other keys are not allowed and are a `SchemaError` class violation (Section 14.4).
 Key `name` inside `content.sections.<sectionName>` is not allowed and is a `SchemaError` class violation (Section 14.4).
-
-If `title` is specified as a string, for validation purposes it is treated as a single-item list.
 
 `required` field for `content.sections.<sectionName>` is interpreted by the general requiredness model (Section 11.5).
 
@@ -830,7 +830,7 @@ For each element `content.sections.<sectionName>`, validator MUST apply the foll
 
 - if effective `required` value for a specific implementation is truth-like, the section with label `sectionName` is required;
 - if effective `required` value for a specific implementation is false-like, absence of the section with label `sectionName` is not an error;
-- if `title` is specified and section is found, heading text of this section MUST strictly match at least one allowed `title` value (case-sensitive comparison).
+- if `title` is specified and section is found, heading text of this section MUST strictly match `title` value (case-sensitive comparison).
 
 Example of allowed heading for `goal` section (informative):
 
