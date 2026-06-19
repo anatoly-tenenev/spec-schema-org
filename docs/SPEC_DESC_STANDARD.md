@@ -4,8 +4,8 @@
 
 Status of this revision: `Draft`.
 Standard creation date: `2026-02-28`.
-Last updated: `2026-04-10`.
-Standard version: `0.0.7`.
+Last updated: `2026-06-19`.
+Standard version: `0.0.8`.
 
 Before release `1.0.0`, incompatible schema format changes (breaking changes) are allowed when increasing `MINOR` and/or `MAJOR`.
 
@@ -434,9 +434,10 @@ Value `null`, as well as values of types `array` and `object`, are not allowed i
 
 - `pathTemplate.cases[].use`;
 - `meta.fields.<fieldName>.schema.const` (only when `const` has string type);
-- `meta.fields.<fieldName>.schema.enum[*]` (only for string `enum` items).
+- `meta.fields.<fieldName>.schema.enum[*]` (only for string `enum` items);
+- `content.sections.<sectionName>.title`.
 
-If, in one of the contexts in this section, a `${expr}` interpolation cannot be evaluated for a specific implementation or produces a result incompatible with string interpolation, this is an `InstanceError` class violation (Section 14.4).
+If a `${expr}` interpolation is subject to evaluation in one of the contexts in this section and cannot be evaluated for a specific implementation or produces a result incompatible with string interpolation, this is an `InstanceError` class violation (Section 14.4).
 
 ## 10. Required Fields of Any Entity Implementation
 
@@ -794,7 +795,7 @@ Each key of `content.sections` defines a section label (`anchor label`) and:
 Each element `content.sections.<sectionName>` MUST be an object with the following fields:
 
 - `required` (optional; if omitted, effective value is determined by rules of Section 11.5) - boolean value or `${expr}` expression defining section requiredness;
-- `title` (optional) - non-empty string; defines allowed text of the section heading;
+- `title` (optional) - non-empty string; defines allowed text of the section heading and may contain `${expr}` interpolations by rules of Section 9;
 - `description` (optional) - a non-empty string, informative field.
 
 If specified, `description` does not affect validation result.
@@ -831,7 +832,8 @@ For each element `content.sections.<sectionName>`, validator MUST apply the foll
 
 - if effective `required` value for a specific implementation is truth-like, the section with label `sectionName` is required;
 - if effective `required` value for a specific implementation is false-like, absence of the section with label `sectionName` is not an error;
-- if `title` is specified and section is found, heading text of this section MUST strictly match `title` value (case-sensitive comparison).
+- if `title` is specified and the section with label `sectionName` is not found, `title` validation is not performed for this implementation;
+- if `title` is specified and the section is found, validator MUST evaluate all `${expr}` interpolations in `title` value by rules of Sections 9 and 11.6; the resulting effective `title` value MUST be a non-empty string; heading text of the found section MUST strictly match the effective `title` value (case-sensitive comparison).
 
 Example of allowed heading for `goal` section (informative):
 
@@ -908,7 +910,7 @@ Normative mapping of violation types to diagnostic classes:
 - `InstanceError`:
   - violations of built-in implementation fields (`type`, `id`, `slug`, `createdDate`, `updatedDate`) and other validation rules for a specific implementation (Section 11);
   - `meta.fields` and `content.sections` violations at implementation-data level (Sections 12.3 and 13.2);
-  - inability to compute a context-allowed `${expr}` interpolation on a specific implementation (including `pathTemplate.cases[].use`, string `schema.const`, and string items of `schema.enum`) or obtaining a result incompatible with string interpolation;
+  - inability to compute a context-allowed `${expr}` interpolation on a specific implementation (including `pathTemplate.cases[].use`, string `schema.const`, string items of `schema.enum`, and `content.sections.<sectionName>.title`) or obtaining a result incompatible with string interpolation;
   - `entityRef` referential integrity violations at implementation-data level (Sections 6.3 and 12.3);
   - inability to classify implementation by type due to a missing/invalid `type` field or inconsistency between `type` and `id` (Sections 5.3 and 11.1).
 - `ProfileError`:
@@ -920,7 +922,7 @@ Normative mapping of violation types to diagnostic classes:
 It is recommended to separate checks into two levels:
 
 - structural schema checks (for example, JSON Schema);
-- semantic checks (cross-references, uniqueness, validation of `pathTemplate.cases[].when`, evaluation of `pathTemplate.cases[].use`, `entityRef` resolution, normalization of `content.sections`).
+- semantic checks (cross-references, uniqueness, validation of `pathTemplate.cases[].when`, evaluation of `pathTemplate.cases[].use`, evaluation of `content.sections.<sectionName>.title`, `entityRef` resolution, normalization of `content.sections`).
 
 In addition to mandatory implementation-profile parameters (Section 6.5), it is recommended to explicitly define in validator implementation:
 
