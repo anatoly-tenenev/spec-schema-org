@@ -1,0 +1,25 @@
+---
+layout: layouts/base.njk
+title: Blog
+permalink: /blog/
+description: Articles about Spec Schema, specifications, and agent-oriented development.
+---
+
+<section class="blog-index">
+  <h1>Blog</h1>
+  <ul class="article-list">
+    {% for post in collections.blog | reverse %}
+      <li class="article-list__item">
+        <h2 class="article-list__title">
+          <a href="{{ post.url | relurl(page.url) }}">{{ post.data.title }}</a>
+        </h2>
+        <p class="article-list__meta">
+          By
+          <a href="{{ post.data.authorUrl | escape }}" target="_blank" rel="noopener noreferrer">{{ post.data.author }}</a>
+          <span aria-hidden="true">·</span>
+          <time datetime="{{ post.date | htmlDateString }}">{{ post.date | readableDate }}</time>
+        </p>
+      </li>
+    {% endfor %}
+  </ul>
+</section>
