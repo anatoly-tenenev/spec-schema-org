@@ -118,8 +118,8 @@ a:hover {
 
 .prose h1 {
   margin: 0 0 0.9rem;
-  font-size: clamp(1.95rem, 6vw, 3.05rem);
-  line-height: 1.06;
+  font-size: clamp(1.72rem, 4.6vw, 2.35rem);
+  line-height: 1.12;
 }
 
 .prose h2 {
