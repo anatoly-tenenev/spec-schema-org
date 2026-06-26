@@ -39,6 +39,10 @@ function extractFencedCodeBlock(content: string, language?: string): string {
   return match ? match[1] : "";
 }
 
+function toDate(value: Date | string | number): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
 export default function config(eleventyConfig: UserConfig) {
   eleventyConfig.addPassthroughCopy({
     "src/assets": "assets",
@@ -58,6 +62,18 @@ export default function config(eleventyConfig: UserConfig) {
 
   eleventyConfig.addFilter("extractFencedCode", (content: string, language?: string) => {
     return extractFencedCodeBlock(content, language);
+  });
+
+  eleventyConfig.addFilter("htmlDateString", (value: Date | string | number) => {
+    return toDate(value).toISOString().slice(0, 10);
+  });
+
+  eleventyConfig.addFilter("readableDate", (value: Date | string | number) => {
+    return new Intl.DateTimeFormat("en", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    }).format(toDate(value));
   });
 
   eleventyConfig.addFilter("relurl", (target: string, from = "/") => {
