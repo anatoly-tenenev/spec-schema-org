@@ -29,8 +29,10 @@ description: "Specification Description Standard (Spec Schema) for repositories:
 
 <section class="panel" id="example-spec">
   <h2>Example spec</h2>
-  <p><code>spec.schema.yaml</code></p>
-  <pre class="code-block"><code>{{ "docs/spec.schema.yaml" | readFile | escape }}</code></pre>
+  <figure class="code">
+    <figcaption class="code__label">spec.schema.yaml</figcaption>
+    <pre class="code-block"><code>{{ "docs/spec.schema.yaml" | readFile | escape }}</code></pre>
+  </figure>
 </section>
 
 <section class="panel">
@@ -39,5 +41,8 @@ description: "Specification Description Standard (Spec Schema) for repositories:
     No separate file structure index is needed. This is just an example layout defined and validated by
     <code>spec.schema.yaml</code>.
   </p>
-  <pre class="code-block"><code>{{ "docs/example.file-structure.md" | readFile | extractFencedCode("text") | escape }}</code></pre>
+  <figure class="code">
+    <figcaption class="code__label">spec/</figcaption>
+    <pre class="code-block"><code>{{ "docs/example.file-structure.md" | readFile | extractFencedCode("text") | escape }}</code></pre>
+  </figure>
 </section>
