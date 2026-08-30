@@ -44,6 +44,13 @@
 
     heading.id = id;
 
+    const anchor = document.createElement("a");
+    anchor.className = "heading-anchor";
+    anchor.href = `#${id}`;
+    anchor.textContent = "#";
+    anchor.setAttribute("aria-label", `Link to section: ${text}`);
+    heading.append(anchor);
+
     const link = document.createElement("a");
     link.href = `#${id}`;
     link.textContent = text;
@@ -111,6 +118,18 @@
     });
   };
 
+  const details = document.getElementById("page-toc-details");
+  const wideLayout = window.matchMedia("(min-width: 1100px)");
+
+  if (details) {
+    const syncDetailsState = () => {
+      details.open = wideLayout.matches;
+    };
+
+    syncDetailsState();
+    wideLayout.addEventListener("change", syncDetailsState);
+  }
+
   toc.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLAnchorElement)) {
@@ -120,6 +139,10 @@
     const tocId = target.dataset.tocId;
     if (tocId) {
       setActiveLink(tocId);
+    }
+
+    if (details && !wideLayout.matches) {
+      details.open = false;
     }
   });
 
