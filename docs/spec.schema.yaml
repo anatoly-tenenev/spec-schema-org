@@ -1,4 +1,4 @@
-version: 0.0.7
+version: "0.0.9"
 entity:
   domain:
     idPrefix: DOM
@@ -65,7 +65,7 @@ entity:
         acceptance:
           title: Acceptance Criteria
         rollout:
-          required: ${meta.service}
+          required: ${refs.service}
           title: Rollout
 
   adr:
@@ -86,6 +86,7 @@ entity:
             type: string
             enum: [low, medium, high]
         supersedes:
+          required: ${meta.decision_status == 'superseded'}
           schema:
             type: entityRef
             refType: adr
